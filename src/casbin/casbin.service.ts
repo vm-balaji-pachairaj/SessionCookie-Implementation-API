@@ -501,12 +501,10 @@ export class CasbinService implements OnModuleInit {
     return permissions;
   }
 
-  /**
-   * Get menus for a role.
-   */
+  
   async getMenusForRole(
     roleName: string,
-  ): Promise<string[]> {
+    ): Promise<string[]> {
     const groupingPolicies =
       await this.enforcer.getFilteredGroupingPolicy(
         0,
@@ -518,19 +516,24 @@ export class CasbinService implements OnModuleInit {
     for (const grouping of groupingPolicies) {
       const target = grouping[1];
 
-      const policies =
+      if (!target) {
+        continue;
+      }
+
+      // Check whether this target is a permission.
+      const permissionPolicies =
         await this.enforcer.getFilteredPolicy(
           0,
           target,
         );
 
-      // If no p policy exists for this target,
-      // treat it as a menu mapping.
-      if (policies.length === 0) {
+      // If there is no p policy for this target,
+      // it is a menu mapping.
+      if (permissionPolicies.length === 0) {
         menus.push(target);
       }
     }
 
-    return menus;
+    return [...new Set(menus)];
   }
 }

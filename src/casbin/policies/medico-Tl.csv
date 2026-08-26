@@ -6,7 +6,7 @@ p, userManagement-createUser, hcp, userManagement, user, create, edit
 p, userManagement-updateUser, hcp, userManagement, user, update, edit
 p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
 p, userManagement-page, hcp, userManagement, page, access, view
-p, userManagement-reports, hcp, userManagement, reports, view, view
+p, userManagement-reports, hcp, userManagement, reports, access, view
 
 # User Form - Section Level
 
@@ -32,7 +32,7 @@ g, Medico TL, userManagement-reports
 
 g, Medico TL, dashboard
 g, Medico TL, search
-g, Medico TL, userManagement
+g, Medico TL, user-management
 g, Medico TL, reports
 
 # Default landing page
