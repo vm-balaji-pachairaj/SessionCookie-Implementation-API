@@ -1,42 +1,30 @@
-p,  email-pool-bulkAssign,  hcp,  email,  pool,  bulkAssign,  edit
-p,  genericSearch-genericSearch-search,  hcp,  genericSearch,  genericSearch,  search,  edit
-p,  genericSearch-genericSearch-list,  hcp,  genericSearch,  genericSearch,  list,  edit
-p,  email-pool-search,  hcp,  email,  pool,  search,  edit
-p,  email-pool-list,  hcp,  email,  pool,  list,  edit
-p,  email-pool-assign,  hcp,  email,  pool,  assign,  edit
-p,  email-pool-reassign,  hcp,  email,  pool,  reassign,  edit
-p,  email-team-dashboardView,  hcp,  email,  team,  dashboardView,  edit
-p,  email-team-dashboardDetailView,  hcp,  email,  team,  dashboardDetailView,  edit
-p,  email-team-viewEmailDetails,  hcp,  email,  team,  viewEmailDetails,  edit
-p,  email-team-reassign,  hcp,  email,  team,  reassign,  edit
-p,  teamDashboard-dashboard-dashboard,  hcp,  teamDashboard,  dashboard,  dashboard,  edit
-p,  claimPoolDashboard-dashboard-dashboard,  hcp,  claimPoolDashboard,  dashboard,  dashboard,  edit
-p,  addViewAggregateDeductible-policySearch-addAggregateDeductible,  hcp,  addViewAggregateDeductible,  policySearch,  addAggregateDeductible,  edit
-p,  claimUserDashboard-dashboard-dashboard,  hcp,  claimUserDashboard,  dashboard,  dashboard,  edit
+# Policies
 
-g,  Non Medico TL,  email-pool-bulkAssign
-g,  Non Medico TL,  genericSearch-genericSearch-search
-g,  Non Medico TL,  genericSearch-genericSearch-list
-g,  Non Medico TL,  email-pool-search
-g,  Non Medico TL,  email-pool-list
-g,  Non Medico TL,  email-pool-assign
-g,  Non Medico TL,  email-pool-reassign
-g,  Non Medico TL,  email-team-dashboardView
-g,  Non Medico TL,  email-team-dashboardDetailView
-g,  Non Medico TL,  email-team-viewEmailDetails
-g,  Non Medico TL,  email-team-reassign
-g,  Non Medico TL,  teamDashboard-dashboard-dashboard
-g,  Non Medico TL,  claimPoolDashboard-dashboard-dashboard
-g,  Non Medico TL,  addViewAggregateDeductible-policySearch-addAggregateDeductible
-g,  Non Medico TL,  claimUserDashboard-dashboard-dashboard
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-activateUser, hcp, userManagement, user, activate, edit
+p, userManagement-page, hcp, userManagement, page, access, view
 
-# Menu mappings (g -> p2)
-g, Non Medico TL, claims_pool_dashboard
-g, Non Medico TL, claims_team_dashboard
-g, Non Medico TL, claim_user_dashboard_tl
-g, Non Medico TL, email_pool_dashboard
-g, Non Medico TL, email_team_dashboard
-g, Non Medico TL, generic_search
-g, Non Medico TL, add_view_aggregate_deductible
+# User Form - Section Level
 
-g2,  Non Medico TL,  hcp,  claims_pool_dashboard
+p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
+p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
+p, userManagement-user-roleAccess-view, hcp, userManagement, userForm, roleAccess, view
+
+
+g, Non Medico TL, userManagement-dashboard
+g, Non Medico TL, userManagement-search
+g, Non Medico TL, userManagement-updateUser
+g, Non Medico TL, userManagement-activateUser
+g, Non Medico TL, userManagement-user-basicDetails
+g, Non Medico TL, userManagement-user-contactDetails
+g, Non Medico TL, userManagement-user-roleAccess-view
+g, Non Medico TL, userManagement-page
+
+g, Non Medico TL, dashboard
+g, Non Medico TL, search
+g, Non Medico TL, userManagement
+
+
+g2, Non Medico TL, hcp, dashboard

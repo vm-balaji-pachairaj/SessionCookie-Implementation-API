@@ -1,22 +1,40 @@
-p, genericSearch-genericSearch-search, hcp, genericSearch, genericSearch, search, edit
-p, genericSearch-genericSearch-list, hcp, genericSearch, genericSearch, list, edit
-p, teamDashboard-dashboard-dashboard, hcp, teamDashboard, dashboard, dashboard, edit
-p, claimPoolDashboard-dashboard-dashboard, hcp, claimPoolDashboard, dashboard, dashboard, edit
-p, miscellaneousDashboard-dashboard-dashboard, hcp, miscellaneousDashboard, dashboard, dashboard, edit
-p, claimUserDashboard-dashboard-dashboard, hcp, claimUserDashboard, dashboard, dashboard, edit
+# Policies
 
-g, Medico TL, genericSearch-genericSearch-search
-g, Medico TL, genericSearch-genericSearch-list
-g, Medico TL, teamDashboard-dashboard-dashboard
-g, Medico TL, claimPoolDashboard-dashboard-dashboard
-g, Medico TL, miscellaneousDashboard-dashboard-dashboard
-g, Medico TL, claimUserDashboard-dashboard-dashboard
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-createUser, hcp, userManagement, user, create, edit
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
+p, userManagement-page, hcp, userManagement, page, access, view
+p, userManagement-reports, hcp, userManagement, reports, view, view
 
-# Menu mappings (g -> p2)
-g, Medico TL, claims_pool_dashboard,
-g, Medico TL, claims_team_dashboard,
-g, Medico TL, claim_user_dashboard_tl,
-g, Medico TL, miscellanious_dashboard,
-g, Medico TL, generic_search,
+# User Form - Section Level
 
-g2, Medico TL, hcp, claims_pool_dashboard
+p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
+p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
+p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
+
+
+# Role -> Permissions
+
+g, Medico TL, userManagement-dashboard
+g, Medico TL, userManagement-search
+g, Medico TL, userManagement-createUser
+g, Medico TL, userManagement-updateUser
+g, Medico TL, userManagement-deactivateUser
+g, Medico TL, userManagement-user-basicDetails
+g, Medico TL, userManagement-user-contactDetails
+g, Medico TL, userManagement-user-roleAccess
+g, Medico TL, userManagement-page
+g, Medico TL, userManagement-reports
+
+# Menu mappings
+
+g, Medico TL, dashboard
+g, Medico TL, search
+g, Medico TL, userManagement
+g, Medico TL, reports
+
+# Default landing page
+
+g2, Medico TL, hcp, dashboard

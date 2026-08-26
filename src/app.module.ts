@@ -9,6 +9,8 @@ import { RedisService } from './redis.service';
 import { AuthGuard } from './auth.guard';
 import { TraceIdMiddleware } from 'nest-common-utilities';
 import { CasbinModule } from './casbin/casbin.module';
+import { UserManagementController } from './users/users.controller';
+import { UserManagementService } from './users/users.service';
 
 @Module({
   imports: [
@@ -19,16 +21,24 @@ import { CasbinModule } from './casbin/casbin.module';
     JwtModule.register({}),
     CasbinModule,
   ],
-  controllers: [AuthController],
+
+  controllers: [
+    AuthController,
+    UserManagementController,
+  ],
+
   providers: [
     AuthService,
+    UserManagementService,
     RedisService,
+
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
   ],
 })
+
 export class AppModule implements NestModule {
   /**
    * Configures middleware for the application.
