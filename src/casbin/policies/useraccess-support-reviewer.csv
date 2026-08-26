@@ -1,0 +1,30 @@
+# Policies
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-reviewPending, hcp, userManagement, reviewPending, list, edit
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
+
+# User Form - Section Level
+p, userManagement-user-basicDetails-view, hcp, userManagement, userForm, basicDetails, view
+p, userManagement-user-contactDetails-view, hcp, userManagement, userForm, contactDetails, view
+p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
+
+# Role -> Permissions
+g, User Access Support Reviewer, userManagement-dashboard
+g, User Access Support Reviewer, userManagement-search
+g, User Access Support Reviewer, userManagement-reviewPending
+g, User Access Support Reviewer, userManagement-updateUser
+g, User Access Support Reviewer, userManagement-deactivateUser
+g, User Access Support Reviewer, userManagement-user-basicDetails-view
+g, User Access Support Reviewer, userManagement-user-contactDetails-view
+g, User Access Support Reviewer, userManagement-user-roleAccess
+
+# Menu mappings
+g, User Access Support Reviewer, dashboard
+g, User Access Support Reviewer, search
+g, User Access Support Reviewer, userManagement
+g, User Access Support Reviewer, review_pending
+
+# Default landing page
+g2, User Access Support Reviewer, hcp, dashboard

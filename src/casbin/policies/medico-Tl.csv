@@ -1,0 +1,40 @@
+# Policies
+
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-createUser, hcp, userManagement, user, create, edit
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
+p, userManagement-page, hcp, userManagement, page, access, view
+p, userManagement-reports, hcp, userManagement, reports, access, view
+
+# User Form - Section Level
+
+p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
+p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
+p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
+
+
+# Role -> Permissions
+
+g, Medico TL, userManagement-dashboard
+g, Medico TL, userManagement-search
+g, Medico TL, userManagement-createUser
+g, Medico TL, userManagement-updateUser
+g, Medico TL, userManagement-deactivateUser
+g, Medico TL, userManagement-user-basicDetails
+g, Medico TL, userManagement-user-contactDetails
+g, Medico TL, userManagement-user-roleAccess
+g, Medico TL, userManagement-page
+g, Medico TL, userManagement-reports
+
+# Menu mappings
+
+g, Medico TL, dashboard
+g, Medico TL, search
+g, Medico TL, user-management
+g, Medico TL, reports
+
+# Default landing page
+
+g2, Medico TL, hcp, dashboard
