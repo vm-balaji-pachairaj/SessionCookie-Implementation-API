@@ -12,16 +12,36 @@ datasource db {
 model casbin_rule {
   id    Int     @id @default(autoincrement())
   ptype String  @db.VarChar(10)
-  v0    String? @db.VarChar(50)
-  v1    String? @db.VarChar(50)
-  v2    String? @db.VarChar(50)
-  v3    String? @db.VarChar(50)
-  v4    String? @db.VarChar(50)
-  v5    String? @db.VarChar(50)
+  v0    String? @db.Text
+  v1    String? @db.Text
+  v2    String? @db.Text
+  v3    String? @db.Text
+  v4    String? @db.Text
+  v5    String? @db.Text
 
   @@unique([ptype, v0, v1, v2, v3, v4, v5], map: "casbin_policy_ptype_v0_v1_v2_v3_v4_v5_key")
   @@schema("casbin")
 }
+
+
+model UserManagementPoc {
+  id           Int      @id @default(autoincrement())
+  employeeId   String   @unique @map("employee_id")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  email        String?
+  phone        String?
+  address      String?
+  role         String?
+  department   String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("user_management_poc")
+  @@schema("users")
+}
+
 
 model doctor_qualifications {
   id                                            BigInt                       @id @default(autoincrement())

@@ -1,0 +1,29 @@
+# Policies
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-createUser, hcp, userManagement, user, create, edit
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
+
+# User Form - Section Level
+p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
+p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
+p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
+
+# Role -> Permissions
+g, User Access Support Initiator, userManagement-dashboard
+g, User Access Support Initiator, userManagement-search
+g, User Access Support Initiator, userManagement-createUser
+g, User Access Support Initiator, userManagement-updateUser
+g, User Access Support Initiator, userManagement-deactivateUser
+g, User Access Support Initiator, userManagement-user-basicDetails
+g, User Access Support Initiator, userManagement-user-contactDetails
+g, User Access Support Initiator, userManagement-user-roleAccess
+
+# Menu mappings
+g, User Access Support Initiator, dashboard
+g, User Access Support Initiator, search
+g, User Access Support Initiator, userManagement
+
+# Default landing page
+g2, User Access Support Initiator, hcp, dashboard

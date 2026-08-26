@@ -217,7 +217,7 @@ export class AuthController {
       new_user_role_mapping_id: body.user_role_mapping_id,
     });
 
-    const { tokens, currentRole } = await this.authService.switchRole(
+    const { tokens, currentRole, permissions, menus, landingPage } = await this.authService.switchRole(
       user,
       body,
     );
@@ -247,6 +247,9 @@ export class AuthController {
       message: 'Role changed successfully',
       currentRole,
       user: { id: user.sub, username: user.username },
+      permissions,
+      menus,
+      landingPage,
     };
   }
 
