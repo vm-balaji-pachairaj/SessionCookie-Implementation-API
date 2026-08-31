@@ -1,0 +1,31 @@
+# Policies
+
+p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-updateUser, hcp, userManagement, user, update, edit
+p, userManagement-activateUser, hcp, userManagement, user, activate, edit
+p, userManagement-page, hcp, userManagement, page, access, view
+
+# User Form - Section Level
+
+p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
+p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
+p, userManagement-user-roleAccess-view, hcp, userManagement, userForm, roleAccess, view
+
+
+g, Non Medico TL, userManagement-dashboard
+g, Non Medico TL, userManagement-search
+g, Non Medico TL, userManagement-updateUser
+g, Non Medico TL, userManagement-activateUser
+g, Non Medico TL, userManagement-user-basicDetails
+g, Non Medico TL, userManagement-user-contactDetails
+g, Non Medico TL, userManagement-user-roleAccess-view
+g, Non Medico TL, userManagement-page
+
+
+g, Non Medico TL, dashboard
+g, Non Medico TL, search
+g, Non Medico TL, user-management
+
+
+g2, Non Medico TL, hcp, dashboard

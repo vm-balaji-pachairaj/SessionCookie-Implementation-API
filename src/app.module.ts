@@ -9,6 +9,9 @@ import { RedisService } from './redis.service';
 import { AuthGuard } from './auth.guard';
 import { TraceIdMiddleware } from 'nest-common-utilities';
 import { PubSubModule } from './pubsub/pubsub.module';
+import { CasbinModule } from './casbin/casbin.module';
+import { UserManagementController } from './users/users.controller';
+import { UserManagementService } from './users/users.service';
 
 @Module({
   imports: [
@@ -18,17 +21,26 @@ import { PubSubModule } from './pubsub/pubsub.module';
     PrismaModule,
     JwtModule.register({}),
     PubSubModule,
+    CasbinModule,
   ],
-  controllers: [AuthController],
+
+  controllers: [
+    AuthController,
+    UserManagementController,
+  ],
+
   providers: [
     AuthService,
+    UserManagementService,
     RedisService,
+
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
   ],
 })
+
 export class AppModule implements NestModule {
   /**
    * Configures middleware for the application.
