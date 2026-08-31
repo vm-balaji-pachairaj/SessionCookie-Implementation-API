@@ -16,6 +16,8 @@ import {
 } from './app.service';
 import { Public } from './public.decorator';
 import { Logger } from 'nest-common-utilities';
+import { NotificationPocPublisher } from './notification-poc.publisher';
+import { NotificationPocConsumer } from './NotificationPoc.Consumer';
 
 export class LoginDto {
   username!: string;
@@ -31,7 +33,11 @@ export class LoginDto {
 export class AuthController {
   private logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly notificationPocPublisher: NotificationPocPublisher,
+    private readonly notificationPocConsumer: NotificationPocConsumer,
+  ) {}
 
   @Public()
   @Post('login')
@@ -390,6 +396,47 @@ export class AuthController {
     }
 
     return undefined;
+  }
+
+  @Post('pubsub-test')
+  async publishTestMessage() {
+
+     const message = await this.notificationPocPublisher.publishTestMessage();
+       this.logger.info('Latest Pub/Sub message requested', {
+      methodName: 'getLastPubSubMessage',
+      api: 'GET /api/pubsub-last-message',
+      hasMessage: Boolean(message),
+      payload: message,
+      serviceInfo: {
+        serviceName: process.env.SERVICE_NAME || 'session-cookie-api',
+        serviceVersion: process.env.SERVICE_VERSION || '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+      },
+    });
+   
+  }
+
+  @Public()
+  @Get('pubsub-last-message')
+  getLastPubSubMessage() {
+    const latestMessage = this.notificationPocConsumer.getLatestMessage();
+
+    this.logger.info('Latest Pub/Sub message requested', {
+      methodName: 'getLastPubSubMessage',
+      api: 'GET /api/pubsub-last-message',
+      hasMessage: Boolean(latestMessage),
+      payload: latestMessage,
+      serviceInfo: {
+        serviceName: process.env.SERVICE_NAME || 'session-cookie-api',
+        serviceVersion: process.env.SERVICE_VERSION || '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+      },
+    });
+
+    return {
+      success: true,
+      message: latestMessage,
+    };
   }
 }
  

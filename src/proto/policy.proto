@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package policy;
+
+service PolicyService {
+  rpc GetPolicies (GetPoliciesRequest) returns (GetPoliciesResponse);
+}
+
+message GetPoliciesRequest {
+  string userId = 1;
+}
+
+message GetPoliciesResponse {
+  bool success = 1;
+  repeated Policy data = 2;
+}
+
+message Policy {
+  string policyId = 1;
+  string customerName = 2;
+  string policyType = 3;
+  int64 sumInsured = 4;
+  int64 premium = 5;
+  string status = 6;
+}

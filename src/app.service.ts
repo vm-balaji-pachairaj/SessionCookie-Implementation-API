@@ -8,8 +8,10 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import type { SignOptions } from 'jsonwebtoken';
 import ms from 'ms';
+import { firstValueFrom } from 'rxjs';
 import { PrismaService } from './PrismaService/prisma.service';
 import { RedisService } from './redis.service';
+import { PolicyClientService } from './policy-client.service';
 // import { PrismaService } from '../prisma/prisma.service';
 
 // ============================================================================
@@ -97,6 +99,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly redisService: RedisService,
+    private readonly policyClientService: PolicyClientService,
   ) {}
 
   async login(
@@ -220,23 +223,31 @@ export class AuthService {
     return tokens;
   }
 
-  async getDashboardData(payload: TokenPayload) {
-    const nt_id = payload.userDetails?.nt_id;
+async getDashboardData(payload: TokenPayload) {
+  const nt_id = payload.userDetails?.nt_id;
 
-    if (!nt_id) {
-      throw new UnauthorizedException('Nt_id is not there');
-    }
-
-    const roles = await this.prisma.user_role_mapping.findMany({
-      where: { nt_id },
-      include: { role_master: true },
-    });
-
-    return {
-      currentRole: this.serializeBigInt(roles),
-      user: { id: payload.sub, username: payload.username },
-    };
+  if (!nt_id) {
+    throw new UnauthorizedException('Nt_id is not there');
   }
+
+  const roles = await this.prisma.user_role_mapping.findMany({
+    where: { nt_id },
+    include: { role_master: true },
+  });
+
+  const policies = await firstValueFrom(
+    this.policyClientService.getPolicies(nt_id),
+  );
+
+  return {
+    currentRole: this.serializeBigInt(roles),
+    policies,
+    user: {
+      id: payload.sub,
+      username: payload.username,
+    },
+  };
+}
 
   async refreshTokens(
     refreshToken: string | undefined,
