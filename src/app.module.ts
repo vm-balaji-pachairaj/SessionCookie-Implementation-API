@@ -8,6 +8,7 @@ import { PrismaModule } from './PrismaService/prismaservice.module';
 import { RedisService } from './redis.service';
 import { AuthGuard } from './auth.guard';
 import { TraceIdMiddleware } from 'nest-common-utilities';
+import { PubSubModule } from './pubsub/pubsub.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TraceIdMiddleware } from 'nest-common-utilities';
     }),
     PrismaModule,
     JwtModule.register({}),
+    PubSubModule,
   ],
   controllers: [AuthController],
   providers: [

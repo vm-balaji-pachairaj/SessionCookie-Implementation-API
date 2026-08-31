@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "sessioncookiepoc-hdfc",
+  "private_key_id": "22a0aac1430a05a48dda36aeb1626e4a79376f78",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC39Q3hB3b1kGnm\n+Y2HLUj/Y+ulf1Vd9seU4dgfk6nGKRFou0fwIoCdlnqq7vEAzyk3NfwP07t3sw2w\nHLaEtYDsxUw6L/VM2WF+Y5soqgjpieWB3/DL+7LQa8K3+cu2jDVpBsTYb9CzKfkz\ng1K6rKuAmuwy9ajezgBnnb6hqAry6mULdy+XcgRa0XoHs7M5K9EHghTHoQocpULt\ncfqZTwRaEoxX1u6YievEYU3SGwpXvxSnGdk2ln89Cyb4soOXRnPlvLHXVoUrS1tB\nQdwGirILu73Mk8Sdoo80hPoN1iquH16AebNiTIk7t13/e+xjtOj9+x18k2jRBQQA\nlMzquXczAgMBAAECggEACNDqOYghjTLpbbk1Aq71aiPwRa4HZH7wtrO80gVCJC3m\nAzEX3qwl93zK496arJFru2p6FN9urcBmM16qPUxI4aVc+gbqsyRR4KbxEdmq9AJN\n/lOXVzdOAmC/uWXJJmEBfZyQ74HVrIMiSck35vFihhcmoxSUjhpXo5+dj2LIeja+\nZWR6/SWZFss/eJbGP4WRBX3kF567cMJTHjoQ9W+WQRyaXU5IFuIPMDmZ5f7vjnXF\noYkAtv3XAIgrABiQzXeYzUkdNq/ZfwRs13G4KWj32sJ0H9HprZ5+8FARy27RurKh\ng8BdOVYwwtuGLD1bqDsKZQ9x9YSu7XtKCOVIWjXeiQKBgQDh6/mKPEcTNyEGcRkP\nv9LvNyDuY9XrHTGdSQf/K1QtiT/TrZXfnuH/tIQRlRS/rlX7u3xU94/SjL2FJUDA\ntXZ71hm79477Xk0cieG2DCTrJKiFT89KMHyrcruQWNruEbok16dOq+qervCOmGRK\nVRruWJCs2rtGfwBmbrpyp4GEmQKBgQDQctCMWaqXA9jNldm5hlJpjydhvVfdfnxr\nR202tlPC6Ww28MJntZlajHp6vxGoWVgHHPvsDze+CHByU5vatOWIZ/FUW2SuuIAj\nUDyvJNareHVgz6FEcF3vQ9uUiejDH5CxIZWa0RVAOTVpqRHavOpSOxbd09Lapg+v\nf/MqM38tqwKBgFwDhArtKfWFionZHl/vvLV5OoxdVQ8BQOfSitM+jnZNZBWOqW/+\nggVnPDL9CQpYsuRoI+dnPMiAUeAcoBbc0Xj2ZlzMIwv2CGoLLka7A35R2+EP9Fk/\nDke13vaXefNkfO/sdVPxaQlgLtGk95Peva09nQ8JtySrLTqK9p0j4/hhAoGAA4vg\nhnLEFzumhaDmCmUBo/AekGgjRY5wWXbmocaqWCeWgrzH4fHSARtgvhPgHggfGkfg\n9Vww65fDKf7IKQlo2lBCZ9gCN4LGE1O7JJOw30v2W0ZNDRgIURjLdJSAFEnGMW1L\n2U1zWhtfEEQjHKCYL/v3YKDI9pVasPaxUWd8428CgYAfJ+OLJhG5fR9edeB0ozn3\nqa0I+GzXAeQ/ifN4JHKqqWeWsEk1VBkY/2W7tfd6vDVTU14dLsphmVvP76ClsFM6\nBsRXxOJmBUnEuJ81Nlot3J+e6oWg+fbM54LkVcgQWrI3BHZqqjXerI7NOMFt6Wna\nC36+D7syD/kxOZ0xVQe68A==\n-----END PRIVATE KEY-----\n",
+  "client_email": "sessioncookiepocpubsub@sessioncookiepoc-hdfc.iam.gserviceaccount.com",
+  "client_id": "107985712577341674217",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/sessioncookiepocpubsub%40sessioncookiepoc-hdfc.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

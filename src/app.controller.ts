@@ -315,6 +315,54 @@ export class AuthController {
     return { message: 'Logout successful' };
   }
 
+  @Post('test-logger')
+  async testLogger(
+    @Req() request: Request & { user?: TokenPayload },
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = request.user as TokenPayload;
+    const logLevels = ['info', 'debug', 'warn', 'error'] as const;
+    const randomIndex = Math.floor(Math.random() * logLevels.length);
+    const selectedLevel = logLevels[randomIndex];
+    const timestamp = new Date().toISOString();
+
+    const logData = {
+      methodName: 'testLogger',
+      api: 'POST /api/test-logger',
+      testMessage: 'This is a random log severity test',
+      selectedLevel,
+      ...this.getUserLogContext(user),
+    };
+
+    // Log with the randomly selected level
+    switch (selectedLevel) {
+      case 'info':
+        this.logger.info('Random log test - INFO level', logData);
+        response.status(200); // OK
+        break;
+      case 'debug':
+        this.logger.debug('Random log test - DEBUG level', logData);
+        response.status(200); // OK
+        break;
+      case 'warn':
+        this.logger.warn('Random log test - WARN level', logData);
+        response.status(202); // Accepted
+        break;
+      case 'error':
+        this.logger.error('Random log test - ERROR level', logData);
+        response.status(206); // Partial Content
+        break;
+    }
+
+    return {
+      success: true,
+      message: `Log added with severity: ${selectedLevel.toUpperCase()}`,
+      logSeverity: selectedLevel,
+      timestamp,
+      statusCode: response.statusCode,
+    };
+  }
+
   // --------------------------------------------------------------------
   // Private helpers — HTTP-transport concerns only.
   // --------------------------------------------------------------------
