@@ -9,6 +9,7 @@ import { RedisService } from './redis.service';
 import { AuthGuard } from './auth.guard';
 import { TraceIdMiddleware } from 'nest-common-utilities';
 import { CasbinModule } from './casbin/casbin.module';
+import { RbacModule } from './rbac/rbac.module';
 import { UserManagementController } from './users/users.controller';
 import { UserManagementService } from './users/users.service';
 
@@ -18,6 +19,7 @@ import { UserManagementService } from './users/users.service';
       isGlobal: true,
     }),
     PrismaModule,
+    RbacModule,
     JwtModule.register({}),
     CasbinModule,
   ],

@@ -8,9 +8,11 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
+import { Public } from '../public.decorator';
 
 import { UserManagementService } from './users.service';
 
+@Public()
 @Controller('api/user-management')
 export class UserManagementController {
   constructor(
