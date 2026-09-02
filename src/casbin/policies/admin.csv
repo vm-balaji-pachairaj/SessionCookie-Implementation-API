@@ -1,0 +1,93 @@
+# ============================================================================
+# ADMIN ROLE POLICIES
+# ============================================================================
+# 
+# Format: 
+# - g entries: g, role_name, permission_id (maps role to permission)
+# - p entries: p, permission_id, lob, page, module, section, access
+#
+# This file defines all permissions for users with the "admin" role.
+# Admins have full access to user management and role management.
+#
+# ============================================================================
+
+# ============================================================================
+# ADMIN PERMISSIONS - DEFINITIONS
+# ============================================================================
+
+# Admin Dashboard Access
+p, admin-dashboard-view, admin, admin, view, dashboard, view
+p, admin-stats-view, admin, admin, view, statistics, view
+p, admin-audit-view, admin, admin, view, auditLog, view
+
+# User Management - List & View
+p, admin-users-list, userManagement, list, users, view
+p, admin-users-export, userManagement, list, users, export
+p, admin-roles-list, userManagement, list, roles, view
+
+# User Management - Update User Roles
+p, admin-userRole-edit, userManagement, update, userRole, edit
+p, admin-userRole-create, userManagement, update, userRole, create
+p, admin-userRole-delete, userManagement, update, userRole, delete
+
+# User Management - Role History & Audit
+p, admin-roleHistory-view, userManagement, list, roleHistory, view
+p, admin-auditTrail-view, userManagement, list, auditTrail, view
+
+# User Management - Deactivate/Activate Users
+p, admin-userStatus-edit, userManagement, update, userStatus, edit
+p, admin-userStatus-activate, userManagement, update, userStatus, activate
+p, admin-userStatus-deactivate, userManagement, update, userStatus, deactivate
+
+# Role Master Management
+p, admin-roles-view, roleMaster, view, roles, view
+p, admin-roles-create, roleMaster, create, roles, create
+p, admin-roles-edit, roleMaster, update, roles, edit
+p, admin-roles-delete, roleMaster, delete, roles, delete
+
+# Permission Management
+p, admin-permissions-view, permissionManagement, view, permissions, view
+p, admin-permissions-edit, permissionManagement, update, permissions, edit
+p, admin-policies-edit, permissionManagement, update, policies, edit
+
+# System Administration
+p, admin-config-view, system, view, config, view
+p, admin-logs-view, system, view, logs, view
+p, admin-config-edit, system, update, config, edit
+p, admin-users-export-system, system, view, users, export
+
+# Casbin Policy Sync
+p, admin-casbin-sync, casbin, execute, sync, execute
+p, admin-casbin-policies-view, casbin, view, policies, view
+
+# ============================================================================
+# ROLE-TO-PERMISSION MAPPING (Group definitions)
+# ============================================================================
+# Maps the "admin" role to all admin permissions
+g, admin, admin-dashboard-view
+g, admin, admin-stats-view
+g, admin, admin-audit-view
+g, admin, admin-users-list
+g, admin, admin-users-export
+g, admin, admin-roles-list
+g, admin, admin-userRole-edit
+g, admin, admin-userRole-create
+g, admin, admin-userRole-delete
+g, admin, admin-roleHistory-view
+g, admin, admin-auditTrail-view
+g, admin, admin-userStatus-edit
+g, admin, admin-userStatus-activate
+g, admin, admin-userStatus-deactivate
+g, admin, admin-roles-view
+g, admin, admin-roles-create
+g, admin, admin-roles-edit
+g, admin, admin-roles-delete
+g, admin, admin-permissions-view
+g, admin, admin-permissions-edit
+g, admin, admin-policies-edit
+g, admin, admin-config-view
+g, admin, admin-logs-view
+g, admin, admin-config-edit
+g, admin, admin-users-export-system
+g, admin, admin-casbin-sync
+g, admin, admin-casbin-policies-view

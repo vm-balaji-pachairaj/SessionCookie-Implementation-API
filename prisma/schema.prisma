@@ -12,12 +12,12 @@ datasource db {
 model casbin_rule {
   id    Int     @id @default(autoincrement())
   ptype String  @db.VarChar(10)
-  v0    String? @db.Text
-  v1    String? @db.Text
-  v2    String? @db.Text
-  v3    String? @db.Text
-  v4    String? @db.Text
-  v5    String? @db.Text
+  v0    String? @db.VarChar(500)
+  v1    String? @db.VarChar(500)
+  v2    String? @db.VarChar(500)
+  v3    String? @db.VarChar(500)
+  v4    String? @db.VarChar(500)
+  v5    String? @db.VarChar(500)
 
   @@unique([ptype, v0, v1, v2, v3, v4, v5], map: "casbin_policy_ptype_v0_v1_v2_v3_v4_v5_key")
   @@schema("casbin")

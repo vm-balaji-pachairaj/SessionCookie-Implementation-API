@@ -144,8 +144,19 @@ export class CasbinService implements OnModuleInit {
     // Insert new policies
     // ------------------------------------------------------------
     if (policiesToInsert.length > 0) {
+      // Truncate values to prevent "value too long" errors
+      const sanitizedPolicies = policiesToInsert.map((policy) => ({
+        ...policy,
+        v0: policy.v0 ? policy.v0.substring(0, 255) : null,
+        v1: policy.v1 ? policy.v1.substring(0, 255) : null,
+        v2: policy.v2 ? policy.v2.substring(0, 255) : null,
+        v3: policy.v3 ? policy.v3.substring(0, 255) : null,
+        v4: policy.v4 ? policy.v4.substring(0, 255) : null,
+        v5: policy.v5 ? policy.v5.substring(0, 255) : null,
+      }));
+
       await this.prisma.casbin_rule.createMany({
-        data: policiesToInsert,
+        data: sanitizedPolicies,
         skipDuplicates: true,
       });
 
@@ -226,6 +237,10 @@ export class CasbinService implements OnModuleInit {
       .readdirSync(policyDir)
       .filter((file) =>
         file.toLowerCase().endsWith('.csv'),
+      )
+      // Exclude menu.csv and communication.csv as they use p2 policies
+      .filter((file) => 
+        !['menu.csv', 'communication.csv'].includes(file.toLowerCase()),
       );
 
     if (csvFiles.length === 0) {
@@ -535,5 +550,99 @@ export class CasbinService implements OnModuleInit {
     }
 
     return [...new Set(menus)];
+  }
+
+  /**
+   * ============================================================================
+   * ADMIN FUNCTIONS — Add/Remove role policies
+   * ============================================================================
+   */
+
+  /**
+   * Add all policies for a specific role
+   * This syncs the CSV policies for a role into Casbin
+   */
+  async addUserRolePolicies(roleName: string): Promise<void> {
+    this.logger.log(`Adding Casbin policies for role: ${roleName}`);
+
+    try {
+      // Get all policies from database that match this role
+      const rolePolicies = await this.prisma.casbin_rule.findMany({
+        where: {
+          v0: roleName, // role name is in v0 field
+        },
+      });
+
+      // Add each policy to the enforcer
+      for (const policy of rolePolicies) {
+        const values = [
+          policy.ptype,
+          policy.v0,
+          policy.v1,
+          policy.v2,
+          policy.v3,
+          policy.v4,
+          policy.v5,
+        ].filter((v) => v !== null);
+
+        await this.enforcer.addPolicy(...values);
+      }
+
+      this.logger.log(
+        `Successfully added ${rolePolicies.length} policies for role: ${roleName}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to add policies for role ${roleName}: ${error}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Remove all policies for a specific role
+   * This clears the Casbin policies when a user loses a role
+   */
+  async removeUserRolePolicies(roleName: string): Promise<void> {
+    this.logger.log(`Removing Casbin policies for role: ${roleName}`);
+
+    try {
+      // Remove all policies where v0 (role) matches
+      const removed = await this.enforcer.removeFilteredPolicy(
+        0,
+        roleName,
+      );
+
+      this.logger.log(
+        `Successfully removed ${removed} policies for role: ${roleName}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to remove policies for role ${roleName}: ${error}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get all policies for a specific role
+   * Useful for auditing what permissions a role has
+   */
+  async getRolePolicies(roleName: string): Promise<any[]> {
+    this.logger.log(`Fetching policies for role: ${roleName}`);
+
+    try {
+      const policies = await this.enforcer.getFilteredPolicy(
+        0,
+        roleName,
+      );
+
+      return policies;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get policies for role ${roleName}: ${error}`,
+      );
+      throw error;
+    }
   }
 }

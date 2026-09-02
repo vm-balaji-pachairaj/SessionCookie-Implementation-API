@@ -11,6 +11,7 @@ import { TraceIdMiddleware } from 'nest-common-utilities';
 import { CasbinModule } from './casbin/casbin.module';
 import { UserManagementController } from './users/users.controller';
 import { UserManagementService } from './users/users.service';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UserManagementService } from './users/users.service';
     PrismaModule,
     JwtModule.register({}),
     CasbinModule,
+    AdminModule,
   ],
 
   controllers: [
