@@ -12,6 +12,7 @@ import { PubSubModule } from './pubsub/pubsub.module';
 import { CasbinModule } from './casbin/casbin.module';
 import { UserManagementController } from './users/users.controller';
 import { UserManagementService } from './users/users.service';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { UserManagementService } from './users/users.service';
     JwtModule.register({}),
     PubSubModule,
     CasbinModule,
+    AdminModule,
   ],
 
   controllers: [

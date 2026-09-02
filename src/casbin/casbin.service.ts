@@ -7,6 +7,7 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '../PrismaService/prisma.service';
+import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
 // import { MENU_CONFIG } from "./menu.config";
 
 interface CasbinPolicyRow {
@@ -48,22 +49,16 @@ export class CasbinService implements OnModuleInit {
         fs.readFileSync(modelPath, 'utf-8'),
       );
 
-      // ------------------------------------------------------------
-      // 2. Create Enforcer
-      // ------------------------------------------------------------
-      this.enforcer = await newEnforcer(model);
+      await this.seedPoliciesFromCsvIfDatabaseIsEmpty();
 
-      this.logger.log('Casbin enforcer created');
+      // The adapter loads casbin.casbin_rule into the enforcer and persists
+      // later policy mutations through the same table.
+      this.enforcer = await newEnforcer(
+        model,
+        new PrismaCasbinAdapter(this.prisma),
+      );
 
-      // ------------------------------------------------------------
-      // 3. CSV → DB synchronization
-      // ------------------------------------------------------------
-      await this.syncCsvWithDatabase();
-
-      // ------------------------------------------------------------
-      // 4. DB → Enforcer
-      // ------------------------------------------------------------
-      await this.loadPoliciesFromDatabase();
+      this.logger.log('Casbin enforcer created from database policies');
 
       this.logger.log(
         'Casbin initialized successfully',
@@ -82,103 +77,34 @@ export class CasbinService implements OnModuleInit {
 
   /**
    * ------------------------------------------------------------
-   * CSV → DB
+   * CSV → DB bootstrap
    *
-   * CSV is treated as the source of truth.
-   *
-   * New CSV policies are inserted into the database.
-   * Policies removed from CSV are removed from the database.
-   * Existing policies are left unchanged.
+   * Only seeds when casbin.casbin_rule is empty, so restarts never
+   * re-insert or duplicate policy rows once the table has been seeded.
    * ------------------------------------------------------------
    */
-  private async syncCsvWithDatabase(): Promise<void> {
+  private async seedPoliciesFromCsvIfDatabaseIsEmpty(): Promise<void> {
+    const existingCount = await this.prisma.casbin_rule.count();
+    if (existingCount > 0) {
+      this.logger.log(
+        `Skipping Casbin policy seed: casbin_rule already has ${existingCount} row(s)`,
+      );
+      return;
+    }
+
     const csvPolicies = await this.readPoliciesFromCsv();
+    if (csvPolicies.length === 0) {
+      throw new Error('No Casbin policies were found in the CSV files');
+    }
+
+    const { count } = await this.prisma.casbin_rule.createMany({
+      data: csvPolicies,
+      skipDuplicates: true,
+    });
 
     this.logger.log(
-      `CSV contains ${csvPolicies.length} policy rows`,
+      `Inserted ${count} new policy row(s) from CSV files (out of ${csvPolicies.length} total CSV rows)`,
     );
-
-    const dbPolicies = await this.prisma.casbin_rule.findMany();
-
-    this.logger.log(
-      `Database contains ${dbPolicies.length} policy rows`,
-    );
-
-    // ------------------------------------------------------------
-    // Create comparable keys
-    // ------------------------------------------------------------
-    const createKey = (policy: CasbinPolicyRow) =>
-      [
-        policy.ptype,
-        policy.v0,
-        policy.v1,
-        policy.v2,
-        policy.v3,
-        policy.v4,
-        policy.v5,
-      ].join('|');
-
-    const csvKeys = new Set(
-      csvPolicies.map(createKey),
-    );
-
-    const dbKeys = new Set(
-      dbPolicies.map(createKey),
-    );
-
-    // ------------------------------------------------------------
-    // Insert policies that exist in CSV but not in DB
-    // ------------------------------------------------------------
-    const policiesToInsert = csvPolicies.filter(
-      (policy) => !dbKeys.has(createKey(policy)),
-    );
-
-    // ------------------------------------------------------------
-    // Delete policies that exist in DB but not in CSV
-    // ------------------------------------------------------------
-    const policiesToDelete = dbPolicies.filter(
-      (policy) => !csvKeys.has(createKey(policy)),
-    );
-
-    // ------------------------------------------------------------
-    // Insert new policies
-    // ------------------------------------------------------------
-    if (policiesToInsert.length > 0) {
-      await this.prisma.casbin_rule.createMany({
-        data: policiesToInsert,
-        skipDuplicates: true,
-      });
-
-      this.logger.log(
-        `Inserted ${policiesToInsert.length} new policy rows`,
-      );
-    }
-
-    // ------------------------------------------------------------
-    // Delete removed policies
-    // ------------------------------------------------------------
-    if (policiesToDelete.length > 0) {
-      for (const policy of policiesToDelete) {
-        await this.prisma.casbin_rule.delete({
-          where: {
-            id: policy.id,
-          },
-        });
-      }
-
-      this.logger.log(
-        `Deleted ${policiesToDelete.length} removed policy rows`,
-      );
-    }
-
-    if (
-      policiesToInsert.length === 0 &&
-      policiesToDelete.length === 0
-    ) {
-      this.logger.log(
-        'CSV and database policies are already synchronized',
-      );
-    }
   }
 
   /**
@@ -309,101 +235,6 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * ------------------------------------------------------------
-   * DB → Enforcer
-   *
-   * The Enforcer is populated from casbin.casbin_rule.
-   * ------------------------------------------------------------
-   */
-  private async loadPoliciesFromDatabase(): Promise<void> {
-    const policies =
-      await this.prisma.casbin_rule.findMany();
-
-    this.logger.log(
-      `Loading ${policies.length} policies from database into Casbin`,
-    );
-
-    for (const policy of policies) {
-      const values = [
-        policy.v0,
-        policy.v1,
-        policy.v2,
-        policy.v3,
-        policy.v4,
-        policy.v5,
-      ].filter(
-        (value): value is string =>
-          value !== null,
-      );
-
-      try {
-        switch (policy.ptype) {
-          case 'p':
-            await this.enforcer.addPolicy(
-              ...values,
-            );
-            break;
-
-          case 'g':
-            await this.enforcer.addGroupingPolicy(
-              ...values,
-            );
-            break;
-
-          case 'g2':
-            await this.enforcer.addNamedGroupingPolicy(
-              'g2',
-              ...values,
-            );
-            break;
-
-          case 'g3':
-            await this.enforcer.addNamedGroupingPolicy(
-              'g3',
-              ...values,
-            );
-            break;
-
-          default:
-            this.logger.warn(
-              `Unknown ptype "${policy.ptype}" found in database`,
-            );
-        }
-      } catch (error) {
-        this.logger.error(
-          `Failed to load database policy ID ${policy.id}`,
-          error instanceof Error
-            ? error.message
-            : String(error),
-        );
-      }
-    }
-
-    const pPolicies =
-      await this.enforcer.getPolicy();
-
-    const groupingPolicies =
-      await this.enforcer.getGroupingPolicy();
-
-    const g2Policies =
-      await this.enforcer.getNamedGroupingPolicy(
-        'g2',
-      );
-
-    this.logger.log(
-      `Loaded ${pPolicies.length} p policies`,
-    );
-
-    this.logger.log(
-      `Loaded ${groupingPolicies.length} g policies`,
-    );
-
-    this.logger.log(
-      `Loaded ${g2Policies.length} g2 policies`,
-    );
-  }
-
-  /**
    * Simple CSV parser.
    */
   private parseCsvLine(
@@ -454,6 +285,15 @@ export class CasbinService implements OnModuleInit {
    */
   getEnforcer(): Enforcer {
     return this.enforcer;
+  }
+
+  /**
+   * Reload all policies from the database into the enforcer.
+   * Used by the admin console after a raw DB policy change (add/remove)
+   * instead of incremental enforcer.addPolicy/removePolicy calls.
+   */
+  async reloadPolicy(): Promise<void> {
+    await this.enforcer.loadPolicy();
   }
 
   /**
