@@ -82,8 +82,8 @@ g, Expert TL, claim-overallClaimDiagnosis-typeOfTreatment
 g, Expert TL, claim-overallClaimDiagnosis-lineOfTreatment
 g, Expert TL, claim-overallClaimDiagnosis-pcsCode
 
-g,  Expert TL,  claim_page
-g,  Expert TL,  email_pool
-g,  Expert TL,  email_team
+g,  Expert TL,  intimate_claim
+g,  Expert TL,  email_pool_dashboard
+g,  Expert TL,  email_team_dashboard
 
-g2,  Expert TL,  hcp,  claim_page
+g2,  Expert TL,  hcp,  intimate_claim

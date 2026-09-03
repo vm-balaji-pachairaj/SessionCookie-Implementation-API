@@ -1,23 +1,51 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../PrismaService/prisma.service';
 import { CasbinService } from '../casbin/casbin.service';
+import { parseP2Metadata } from '../casbin/p2-metadata.util';
+
+export type PolicyType = 'p' | 'p2';
 
 export interface RoleSummary {
   role: string;
   permissionCount: number;
 }
 
+/**
+ * Flexible policy definition covering both ptypes. 'p' rows populate
+ * lob/page/module/section/access; 'p2' (menu) rows populate
+ * lob/parent/meta (+ the parsed displayName/route/icon/order). Consumers
+ * should branch on `ptype` to decide which fields to render.
+ */
 export interface PolicyDefinition {
-  lob: string | null;
-  page: string | null;
-  module: string | null;
-  section: string | null;
-  access: string | null;
+  ptype: PolicyType;
+  // p-type fields
+  lob?: string | null;
+  page?: string | null;
+  module?: string | null;
+  section?: string | null;
+  access?: string | null;
+  // p2-type fields
+  parent?: string | null;
+  meta?: string | null;
+  displayName?: string | null;
+  route?: string | null;
+  icon?: string | null;
+  order?: number | null;
 }
 
 export interface PolicySummary {
   permission: string;
+  ptype: PolicyType;
   definitions: PolicyDefinition[];
+}
+
+/**
+ * A single policy assigned to a role, tagged with its ptype so the UI can
+ * render the right fields (p: lob/page/module/section/access, p2: menu
+ * metadata) for the same "assigned permissions" list.
+ */
+export interface RolePermissionEntry extends PolicyDefinition {
+  permission: string;
 }
 
 @Injectable()
@@ -74,10 +102,37 @@ export class AdminService {
   }
 
   /**
-   * All permissions assigned to a role, resolved to their policy definition.
+   * All policies assigned to a role, resolved to their definition —
+   * both 'p' (permissions) and 'p2' (menus) grants, tagged with ptype.
    */
-  async getRolePermissions(role: string) {
-    return this.casbinService.getPermissionsForRole(role);
+  async getRolePermissions(role: string): Promise<RolePermissionEntry[]> {
+    const [permissions, menus] = await Promise.all([
+      this.casbinService.getPermissionsForRole(role),
+      this.casbinService.getMenusForRole(role),
+    ]);
+
+    const permissionEntries: RolePermissionEntry[] = permissions.map((p) => ({
+      ptype: 'p',
+      permission: p.permission,
+      lob: p.lob,
+      page: p.page,
+      module: p.module,
+      section: p.section,
+      access: p.access,
+    }));
+
+    const menuEntries: RolePermissionEntry[] = menus.map((m) => ({
+      ptype: 'p2',
+      permission: m.key,
+      lob: m.lob,
+      parent: m.parent,
+      displayName: m.displayName,
+      route: m.route,
+      icon: m.icon,
+      order: m.order,
+    }));
+
+    return [...permissionEntries, ...menuEntries];
   }
 
   /**
@@ -98,12 +153,13 @@ export class AdminService {
   }
 
   /**
-   * Assign an existing policy to a role, then reload the enforcer fresh
-   * from the database (per requirement: full reload, no incremental add).
+   * Assign an existing policy (either 'p' permission or 'p2' menu) to a
+   * role, then reload the enforcer fresh from the database (per
+   * requirement: full reload, no incremental add).
    */
   async addPolicyToRole(role: string, permission: string) {
     const policyExists = await this.prisma.casbin_rule.findFirst({
-      where: { ptype: 'p', v0: permission },
+      where: { ptype: { in: ['p', 'p2'] }, v0: permission },
     });
 
     if (!policyExists) {
@@ -148,49 +204,81 @@ export class AdminService {
   }
 
   /**
-   * List every policy in the application. A policy name can have more
-   * than one definition (row) — all of them are returned together.
+   * List every policy in the application, both 'p' (permissions) and
+   * 'p2' (menus). A policy name can have more than one definition (row)
+   * — all of them are returned together, tagged with their ptype.
    */
   async getPolicies(): Promise<PolicySummary[]> {
     const rows = await this.prisma.casbin_rule.findMany({
-      where: { ptype: 'p', v0: { not: null } },
+      where: { ptype: { in: ['p', 'p2'] }, v0: { not: null } },
       orderBy: { id: 'asc' },
     });
 
-    const map = new Map<string, PolicyDefinition[]>();
+    const map = new Map<string, PolicySummary>();
 
     for (const row of rows) {
+      const ptype = row.ptype as PolicyType;
       const name = row.v0 as string;
-      const definitions = map.get(name) ?? [];
+      const mapKey = `${ptype}:${name}`;
 
-      definitions.push({
-        lob: row.v1,
-        page: row.v2,
-        module: row.v3,
-        section: row.v4,
-        access: row.v5,
-      });
+      const entry = map.get(mapKey) ?? {
+        permission: name,
+        ptype,
+        definitions: [],
+      };
 
-      map.set(name, definitions);
+      if (ptype === 'p2') {
+        entry.definitions.push({
+          ptype: 'p2',
+          lob: row.v1,
+          parent: row.v2,
+          meta: row.v3,
+          ...parseP2Metadata(row.v3),
+        });
+      } else {
+        entry.definitions.push({
+          ptype: 'p',
+          lob: row.v1,
+          page: row.v2,
+          module: row.v3,
+          section: row.v4,
+          access: row.v5,
+        });
+      }
+
+      map.set(mapKey, entry);
     }
 
-    return Array.from(map.entries()).map(([permission, definitions]) => ({
-      permission,
-      definitions,
-    }));
+    return Array.from(map.values());
   }
 
   /**
    * All definitions for a single policy name — used by the "View Access"
-   * / "View Definition" modal.
+   * / "View Definition" modal. `ptype` selects which policy table to read
+   * ('p' permissions vs 'p2' menus) since the same name could theoretically
+   * exist in both.
    */
-  async getPolicyDefinitions(permission: string): Promise<PolicyDefinition[]> {
+  async getPolicyDefinitions(
+    permission: string,
+    ptype: PolicyType = 'p',
+  ): Promise<PolicyDefinition[]> {
     const rows = await this.prisma.casbin_rule.findMany({
-      where: { ptype: 'p', v0: permission },
+      where: { ptype, v0: permission },
       orderBy: { id: 'asc' },
     });
 
+    if (ptype === 'p2') {
+      return rows.map((row) => ({
+        ptype: 'p2' as const,
+        lob: row.v1,
+        parent: row.v2,
+        meta: row.v3,
+        ...parseP2Metadata(row.v3),
+      }));
+    }
+
     return rows.map((row) => ({
+      ptype: 'p' as const,
       lob: row.v1,
       page: row.v2,
       module: row.v3,
@@ -202,24 +290,45 @@ export class AdminService {
   /**
    * Enforcer Checker (demo) — runs the real Casbin enforcer against a
    * role + policy dimensions and returns whether access is allowed.
+   * Supports both 'p' (lob/page/module/section/access matcher) and 'p2'
+   * (direct role -> menu key grant) policy types.
    */
   async checkEnforcer(params: {
+    ptype?: PolicyType;
     role: string;
-    lob: string;
-    page: string;
-    module: string;
-    section: string;
-    access: string;
+    lob?: string;
+    page?: string;
+    module?: string;
+    section?: string;
+    access?: string;
+    key?: string;
   }): Promise<{
     allowed: boolean;
+    ptype: PolicyType;
     role: string;
-    lob: string;
-    page: string;
-    module: string;
-    section: string;
-    access: string;
+    lob?: string;
+    page?: string;
+    module?: string;
+    section?: string;
+    access?: string;
+    key?: string;
   }> {
-    const { role, lob, page, module, section, access } = params;
+    const ptype: PolicyType = params.ptype === 'p2' ? 'p2' : 'p';
+    const { role } = params;
+
+    if (ptype === 'p2') {
+      const key = params.key ?? '';
+      const allowed = await this.casbinService.enforceP2(role, key);
+      return { allowed, ptype, role, key };
+    }
+
+    const {
+      lob = '',
+      page = '',
+      module = '',
+      section = '',
+      access = '',
+    } = params;
 
     const allowed = await this.casbinService.enforce(
       role,
@@ -230,6 +339,6 @@ export class AdminService {
       access,
     );
 
-    return { allowed, role, lob, page, module, section, access };
+    return { allowed, ptype, role, lob, page, module, section, access };
   }
 }

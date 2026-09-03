@@ -23,7 +23,7 @@ g, User Access Support Initiator, userManagement-user-roleAccess
 # Menu mappings
 g, User Access Support Initiator, dashboard
 g, User Access Support Initiator, search
-g, User Access Support Initiator, userManagement
+g, User Access Support Initiator, user_management
 
 # Default landing page
 g2, User Access Support Initiator, hcp, dashboard

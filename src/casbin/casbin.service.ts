@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '../PrismaService/prisma.service';
 import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
+import { parseP2Metadata } from './p2-metadata.util';
 // import { MENU_CONFIG } from "./menu.config";
 
 interface CasbinPolicyRow {
@@ -18,6 +19,16 @@ interface CasbinPolicyRow {
   v3: string | null;
   v4: string | null;
   v5: string | null;
+}
+
+export interface MenuInfo {
+  key: string;
+  lob: string;
+  parent: string;
+  displayName: string;
+  route: string;
+  icon: string;
+  order: number;
 }
 
 @Injectable()
@@ -50,6 +61,7 @@ export class CasbinService implements OnModuleInit {
       );
 
       await this.seedPoliciesFromCsvIfDatabaseIsEmpty();
+      await this.seedP2MenusIfMissing();
 
       // The adapter loads casbin.casbin_rule into the enforcer and persists
       // later policy mutations through the same table.
@@ -104,6 +116,40 @@ export class CasbinService implements OnModuleInit {
 
     this.logger.log(
       `Inserted ${count} new policy row(s) from CSV files (out of ${csvPolicies.length} total CSV rows)`,
+    );
+  }
+
+  /**
+   * ------------------------------------------------------------
+   * Backfills 'p2' menu rows even when casbin_rule already has other
+   * policy data, so a pre-existing (non-empty) table still picks up
+   * menu definitions added to the CSVs after the initial seed.
+   * ------------------------------------------------------------
+   */
+  private async seedP2MenusIfMissing(): Promise<void> {
+    const existingP2Count = await this.prisma.casbin_rule.count({
+      where: { ptype: 'p2' },
+    });
+    if (existingP2Count > 0) {
+      this.logger.log(
+        `Skipping P2 menu seed: casbin_rule already has ${existingP2Count} p2 row(s)`,
+      );
+      return;
+    }
+
+    const csvPolicies = await this.readPoliciesFromCsv();
+    const p2Policies = csvPolicies.filter((policy) => policy.ptype === 'p2');
+    if (p2Policies.length === 0) {
+      return;
+    }
+
+    const { count } = await this.prisma.casbin_rule.createMany({
+      data: p2Policies,
+      skipDuplicates: true,
+    });
+
+    this.logger.log(
+      `Inserted ${count} new p2 menu row(s) from CSV files (out of ${p2Policies.length} total CSV p2 rows)`,
     );
   }
 
@@ -197,7 +243,7 @@ export class CasbinService implements OnModuleInit {
 
           const [ptype, ...policyValues] = values;
 
-          if (!['p', 'g', 'g2', 'g3'].includes(ptype)) {
+          if (!['p', 'p2', 'g', 'g2', 'g3'].includes(ptype)) {
             this.logger.warn(
               `Unknown policy type "${ptype}" in ${file}:${index + 1}`,
             );
@@ -265,6 +311,21 @@ export class CasbinService implements OnModuleInit {
       sec,
       access,
     );
+  }
+
+  /**
+   * P2 (menu) policies have no [matchers] entry of their own — they are
+   * granted purely via a direct 'g' mapping (role -> menu key), the same
+   * mechanism getMenusForRole() resolves. "Enforcing" a p2 policy therefore
+   * means: the key is a real p2 policy AND the role has that direct grant.
+   */
+  async enforceP2(role: string, key: string): Promise<boolean> {
+    const menu = await this.getMenuInfo(key);
+    if (!menu) {
+      return false;
+    }
+
+    return this.enforcer.hasGroupingPolicy(role, key);
   }
 
   /**
@@ -341,17 +402,56 @@ export class CasbinService implements OnModuleInit {
     return permissions;
   }
 
-  
-  async getMenusForRole(
-    roleName: string,
-    ): Promise<string[]> {
+  /**
+   * Look up the full P2 menu definition (lob, parent, displayName, route,
+   * icon, order) for a menu key from the enforcer's 'p2' named policy.
+   */
+  private async getMenuInfo(key: string): Promise<MenuInfo | null> {
+    const [p2Policy] = await this.enforcer.getFilteredNamedPolicy(
+      'p2',
+      0,
+      key,
+    );
+
+    if (!p2Policy) {
+      return null;
+    }
+
+    const [menuKey, lob, parent, meta] = p2Policy;
+
+    return {
+      key: menuKey,
+      lob,
+      parent,
+      ...parseP2Metadata(meta),
+    };
+  }
+
+  /**
+   * Get all P2 menu definitions from the database.
+   */
+  async getAllP2Menus(): Promise<MenuInfo[]> {
+    const p2Policies = await this.enforcer.getNamedPolicy('p2');
+
+    return p2Policies.map(([key, lob, parent, meta]) => ({
+      key,
+      lob,
+      parent,
+      ...parseP2Metadata(meta),
+    }));
+  }
+
+  /**
+   * Get the menus (with full P2 metadata) assigned to a role.
+   */
+  async getMenusForRole(roleName: string): Promise<MenuInfo[]> {
     const groupingPolicies =
       await this.enforcer.getFilteredGroupingPolicy(
         0,
         roleName,
       );
 
-    const menus: string[] = [];
+    const menus: MenuInfo[] = [];
 
     for (const grouping of groupingPolicies) {
       const target = grouping[1];
@@ -368,12 +468,17 @@ export class CasbinService implements OnModuleInit {
         );
 
       // If there is no p policy for this target,
-      // it is a menu mapping.
+      // it is a menu mapping — resolve its full p2 definition.
       if (permissionPolicies.length === 0) {
-        menus.push(target);
+        const menuInfo = await this.getMenuInfo(target);
+        if (menuInfo) {
+          menus.push(menuInfo);
+        }
       }
     }
 
-    return [...new Set(menus)];
+    const uniqueMenus = new Map(menus.map((menu) => [menu.key, menu]));
+
+    return [...uniqueMenus.values()];
   }
 }

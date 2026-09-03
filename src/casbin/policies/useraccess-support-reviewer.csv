@@ -23,7 +23,7 @@ g, User Access Support Reviewer, userManagement-user-roleAccess
 # Menu mappings
 g, User Access Support Reviewer, dashboard
 g, User Access Support Reviewer, search
-g, User Access Support Reviewer, userManagement
+g, User Access Support Reviewer, user_management
 g, User Access Support Reviewer, review_pending
 
 # Default landing page

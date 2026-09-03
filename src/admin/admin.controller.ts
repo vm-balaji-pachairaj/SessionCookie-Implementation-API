@@ -1,6 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Public } from '../public.decorator';
 import { AdminService } from './admin.service';
+import type { PolicyType } from './admin.service';
 
 // ============================================================================
 // Admin console — no authentication / policy checks by design (POC scope).
@@ -55,9 +64,13 @@ export class AdminController {
   }
 
   @Get('policies/:permission/definitions')
-  getPolicyDefinitions(@Param('permission') permission: string) {
+  getPolicyDefinitions(
+    @Param('permission') permission: string,
+    @Query('ptype') ptype?: PolicyType,
+  ) {
     return this.adminService.getPolicyDefinitions(
       decodeURIComponent(permission),
+      ptype === 'p2' ? 'p2' : 'p',
     );
   }
 
@@ -65,12 +78,14 @@ export class AdminController {
   checkEnforcer(
     @Body()
     body: {
+      ptype?: PolicyType;
       role: string;
-      lob: string;
-      page: string;
-      module: string;
-      section: string;
-      access: string;
+      lob?: string;
+      page?: string;
+      module?: string;
+      section?: string;
+      access?: string;
+      key?: string;
     },
   ) {
     return this.adminService.checkEnforcer(body);
