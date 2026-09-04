@@ -7,7 +7,6 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '../PrismaService/prisma.service';
-// import { MENU_CONFIG } from "./menu.config";
 
 interface CasbinPolicyRow {
   ptype: string;
@@ -84,11 +83,10 @@ export class CasbinService implements OnModuleInit {
    * ------------------------------------------------------------
    * CSV → DB
    *
-   * CSV is treated as the source of truth.
+   * CSV is treated as the initial/default seed source.
    *
    * New CSV policies are inserted into the database.
-   * Policies removed from CSV are removed from the database.
-   * Existing policies are left unchanged.
+   * Dynamically created/custom policies in DB are preserved.
    * ------------------------------------------------------------
    */
   private async syncCsvWithDatabase(): Promise<void> {
@@ -118,26 +116,26 @@ export class CasbinService implements OnModuleInit {
         policy.v5,
       ].join('|');
 
-    const csvKeys = new Set(
-      csvPolicies.map(createKey),
-    );
+    // On the initial seed, import the complete CSV. Afterwards, policy
+    // definitions remain CSV-seeded but role assignments (`g` / `g2`) and
+    // custom policies in DB are preserved across restarts.
+    const csvManagedTypes = dbPolicies.length === 0
+      ? undefined
+      : new Set(['p', 'p2']);
+    const managedCsvPolicies = csvManagedTypes
+      ? csvPolicies.filter((policy) => csvManagedTypes.has(policy.ptype))
+      : csvPolicies;
+    const managedDbPolicies = csvManagedTypes
+      ? dbPolicies.filter((policy) => csvManagedTypes.has(policy.ptype))
+      : dbPolicies;
 
-    const dbKeys = new Set(
-      dbPolicies.map(createKey),
-    );
+    const dbKeys = new Set(managedDbPolicies.map(createKey));
 
     // ------------------------------------------------------------
     // Insert policies that exist in CSV but not in DB
     // ------------------------------------------------------------
-    const policiesToInsert = csvPolicies.filter(
+    const policiesToInsert = managedCsvPolicies.filter(
       (policy) => !dbKeys.has(createKey(policy)),
-    );
-
-    // ------------------------------------------------------------
-    // Delete policies that exist in DB but not in CSV
-    // ------------------------------------------------------------
-    const policiesToDelete = dbPolicies.filter(
-      (policy) => !csvKeys.has(createKey(policy)),
     );
 
     // ------------------------------------------------------------
@@ -154,27 +152,7 @@ export class CasbinService implements OnModuleInit {
       );
     }
 
-    // ------------------------------------------------------------
-    // Delete removed policies
-    // ------------------------------------------------------------
-    if (policiesToDelete.length > 0) {
-      for (const policy of policiesToDelete) {
-        await this.prisma.casbin_rule.delete({
-          where: {
-            id: policy.id,
-          },
-        });
-      }
-
-      this.logger.log(
-        `Deleted ${policiesToDelete.length} removed policy rows`,
-      );
-    }
-
-    if (
-      policiesToInsert.length === 0 &&
-      policiesToDelete.length === 0
-    ) {
+    if (policiesToInsert.length === 0) {
       this.logger.log(
         'CSV and database policies are already synchronized',
       );
@@ -202,9 +180,7 @@ export class CasbinService implements OnModuleInit {
    * }
    * ------------------------------------------------------------
    */
-  private async readPoliciesFromCsv(): Promise<
-    CasbinPolicyRow[]
-  > {
+  private async readPoliciesFromCsv(): Promise<CasbinPolicyRow[]> {
     const policyDir = path.join(
       process.cwd(),
       'src',
@@ -501,10 +477,9 @@ export class CasbinService implements OnModuleInit {
     return permissions;
   }
 
-  
   async getMenusForRole(
     roleName: string,
-    ): Promise<string[]> {
+  ): Promise<string[]> {
     const groupingPolicies =
       await this.enforcer.getFilteredGroupingPolicy(
         0,
