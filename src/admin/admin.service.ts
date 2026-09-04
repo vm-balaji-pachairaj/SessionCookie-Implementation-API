@@ -3,7 +3,7 @@ import { PrismaService } from '../PrismaService/prisma.service';
 import { CasbinService } from '../casbin/casbin.service';
 import { parseP2Metadata } from '../casbin/p2-metadata.util';
 
-export type PolicyType = 'p' | 'p2';
+export type PolicyType = 'p' | 'p2' | 'p3';
 
 export interface RoleSummary {
   role: string;
@@ -11,19 +11,22 @@ export interface RoleSummary {
 }
 
 /**
- * Flexible policy definition covering both ptypes. 'p' rows populate
+ * Flexible policy definition covering all ptypes. 'p' rows populate
  * lob/page/module/section/access; 'p2' (menu) rows populate
- * lob/parent/meta (+ the parsed displayName/route/icon/order). Consumers
- * should branch on `ptype` to decide which fields to render.
+ * lob/parent/meta (+ the parsed displayName/route/icon/order); 'p3'
+ * (field-level access) rows populate lob/page/module/section/field/access.
+ * Consumers should branch on `ptype` to decide which fields to render.
  */
 export interface PolicyDefinition {
   ptype: PolicyType;
-  // p-type fields
+  // p-type fields (also reused by p3)
   lob?: string | null;
   page?: string | null;
   module?: string | null;
   section?: string | null;
   access?: string | null;
+  // p3-type field
+  field?: string | null;
   // p2-type fields
   parent?: string | null;
   meta?: string | null;
@@ -106,9 +109,10 @@ export class AdminService {
    * both 'p' (permissions) and 'p2' (menus) grants, tagged with ptype.
    */
   async getRolePermissions(role: string): Promise<RolePermissionEntry[]> {
-    const [permissions, menus] = await Promise.all([
+    const [permissions, menus, fieldPermissions] = await Promise.all([
       this.casbinService.getPermissionsForRole(role),
       this.casbinService.getMenusForRole(role),
+      this.casbinService.getFieldPermissionsForRole(role),
     ]);
 
     const permissionEntries: RolePermissionEntry[] = permissions.map((p) => ({
@@ -132,7 +136,18 @@ export class AdminService {
       order: m.order,
     }));
 
-    return [...permissionEntries, ...menuEntries];
+    const fieldEntries: RolePermissionEntry[] = fieldPermissions.map((f) => ({
+      ptype: 'p3',
+      permission: f.permission,
+      lob: f.lob,
+      page: f.page,
+      module: f.module,
+      section: f.section,
+      field: f.field,
+      access: f.access,
+    }));
+
+    return [...permissionEntries, ...menuEntries, ...fieldEntries];
   }
 
   /**
@@ -159,7 +174,7 @@ export class AdminService {
    */
   async addPolicyToRole(role: string, permission: string) {
     const policyExists = await this.prisma.casbin_rule.findFirst({
-      where: { ptype: { in: ['p', 'p2'] }, v0: permission },
+      where: { ptype: { in: ['p', 'p2', 'p3'] }, v0: permission },
     });
 
     if (!policyExists) {
@@ -210,7 +225,7 @@ export class AdminService {
    */
   async getPolicies(): Promise<PolicySummary[]> {
     const rows = await this.prisma.casbin_rule.findMany({
-      where: { ptype: { in: ['p', 'p2'] }, v0: { not: null } },
+      where: { ptype: { in: ['p', 'p2', 'p3'] }, v0: { not: null } },
       orderBy: { id: 'asc' },
     });
 
@@ -234,6 +249,16 @@ export class AdminService {
           parent: row.v2,
           meta: row.v3,
           ...parseP2Metadata(row.v3),
+        });
+      } else if (ptype === 'p3') {
+        entry.definitions.push({
+          ptype: 'p3',
+          lob: row.v1,
+          page: row.v2,
+          module: row.v3,
+          section: row.v4,
+          field: row.v5,
+          access: row.v6,
         });
       } else {
         entry.definitions.push({
@@ -277,6 +302,18 @@ export class AdminService {
       }));
     }
 
+    if (ptype === 'p3') {
+      return rows.map((row) => ({
+        ptype: 'p3' as const,
+        lob: row.v1,
+        page: row.v2,
+        module: row.v3,
+        section: row.v4,
+        field: row.v5,
+        access: row.v6,
+      }));
+    }
+
     return rows.map((row) => ({
       ptype: 'p' as const,
       lob: row.v1,
@@ -300,6 +337,7 @@ export class AdminService {
     page?: string;
     module?: string;
     section?: string;
+    field?: string;
     access?: string;
     key?: string;
   }): Promise<{
@@ -310,10 +348,12 @@ export class AdminService {
     page?: string;
     module?: string;
     section?: string;
+    field?: string;
     access?: string;
     key?: string;
   }> {
-    const ptype: PolicyType = params.ptype === 'p2' ? 'p2' : 'p';
+    const ptype: PolicyType =
+      params.ptype === 'p2' ? 'p2' : params.ptype === 'p3' ? 'p3' : 'p';
     const { role } = params;
 
     if (ptype === 'p2') {
@@ -329,6 +369,20 @@ export class AdminService {
       section = '',
       access = '',
     } = params;
+
+    if (ptype === 'p3') {
+      const field = params.field ?? '';
+      const allowed = await this.casbinService.enforceField(
+        role,
+        lob,
+        page,
+        module,
+        section,
+        field,
+        access,
+      );
+      return { allowed, ptype, role, lob, page, module, section, field, access };
+    }
 
     const allowed = await this.casbinService.enforce(
       role,

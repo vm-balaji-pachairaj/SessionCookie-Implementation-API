@@ -18,8 +18,10 @@ model casbin_rule {
   v3    String? @db.Text
   v4    String? @db.Text
   v5    String? @db.Text
+  // v6 holds p3's 7th token (field-level access policies: perm, lob, page, mod, sec, field, access).
+  v6    String? @db.Text
 
-  @@unique([ptype, v0, v1, v2, v3, v4, v5], map: "casbin_policy_ptype_v0_v1_v2_v3_v4_v5_key")
+  @@unique([ptype, v0, v1, v2, v3, v4, v5, v6], map: "casbin_policy_ptype_v0_v1_v2_v3_v4_v5_v6_key")
   @@schema("casbin")
 }
 

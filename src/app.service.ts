@@ -244,6 +244,9 @@ export class AuthService {
     const permissions =
       await this.casbinService.getPermissionsForRole(roleName);
 
+    const fieldPermissions =
+      await this.casbinService.getFieldPermissionsForRole(roleName);
+
     const menus =
       await this.casbinService.getMenusForRole(roleName);
 
@@ -254,6 +257,7 @@ export class AuthService {
       currentRole: this.serializeBigInt(roles),
       user: { id: payload.sub, username: payload.username },
       permissions,
+      fieldPermissions,
       menus,
       landingPage,
     };
@@ -334,6 +338,10 @@ export class AuthService {
       await this.casbinService.getPermissionsForRole(
         roleName,
     );
+    const fieldPermissions =
+      await this.casbinService.getFieldPermissionsForRole(
+        roleName,
+    );
     const menus =
       await this.casbinService.getMenusForRole(
         roleName,
@@ -361,7 +369,7 @@ export class AuthService {
 
     await this.storeUserTokens(currentPayload.sub, tokens);
 
-    return { tokens, currentRole: this.serializeBigInt(requestedRole), permissions, menus, landingPage };
+    return { tokens, currentRole: this.serializeBigInt(requestedRole), permissions, fieldPermissions, menus, landingPage };
   }
 
   /** Used directly by the controller before any protected route runs. */

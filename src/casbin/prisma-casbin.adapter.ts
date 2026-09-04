@@ -9,9 +9,10 @@ type CasbinRuleRecord = {
   v3: string | null;
   v4: string | null;
   v5: string | null;
+  v6: string | null;
 };
 
-const RULE_FIELDS = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5'] as const;
+const RULE_FIELDS = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6'] as const;
 
 /**
  * Custom Casbin adapter for this project's casbin_rule table.
@@ -32,7 +33,7 @@ export class PrismaCasbinAdapter {
   async savePolicy(model: Model): Promise<boolean> {
     const records: CasbinRuleRecord[] = [];
 
-    for (const section of ['p', 'g']) {
+    for (const section of ['p', 'p2', 'p3', 'g']) {
       const sectionMap = model.model.get(section);
       if (!sectionMap) continue;
       for (const [ptype, assertion] of sectionMap) {
@@ -104,6 +105,7 @@ export class PrismaCasbinAdapter {
       v3: rule[3] ?? null,
       v4: rule[4] ?? null,
       v5: rule[5] ?? null,
+      v6: rule[6] ?? null,
     };
   }
 

@@ -1,24 +1,66 @@
 # Policies
 p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-page, hcp, userManagement, user, page, view
 p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-listUsers, hcp, userManagement, user, list, view
 p, userManagement-createUser, hcp, userManagement, user, create, edit
 p, userManagement-updateUser, hcp, userManagement, user, update, edit
 p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
+p, userManagement-activateUser, hcp, userManagement, user, activate, edit
 
 # User Form - Section Level
 p, userManagement-user-basicDetails, hcp, userManagement, userForm, basicDetails, edit
 p, userManagement-user-contactDetails, hcp, userManagement, userForm, contactDetails, edit
 p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
 
+# User Form - Field Level (p3: perm, lob, page, mod, sec, field, access)
+p3, userManagement-user-basicDetails-firstName, hcp, userManagement, userForm, basicDetails, firstName, edit
+p3, userManagement-user-basicDetails-lastName, hcp, userManagement, userForm, basicDetails, lastName, edit
+p3, userManagement-user-basicDetails-employeeId, hcp, userManagement, userForm, basicDetails, employeeId, edit
+p3, userManagement-user-contactDetails-email, hcp, userManagement, userForm, contactDetails, email, edit
+p3, userManagement-user-contactDetails-phone, hcp, userManagement, userForm, contactDetails, phone, edit
+p3, userManagement-user-contactDetails-address, hcp, userManagement, userForm, contactDetails, address, edit
+p3, userManagement-user-roleAccess-role, hcp, userManagement, userForm, roleAccess, role, edit
+p3, userManagement-user-roleAccess-department, hcp, userManagement, userForm, roleAccess, department, edit
+
+# Existing User List - Field Level
+p3, userManagement-userList-employeeId, hcp, userManagement, userList, columns, employeeId, view
+p3, userManagement-userList-firstName, hcp, userManagement, userList, columns, firstName, view
+p3, userManagement-userList-lastName, hcp, userManagement, userList, columns, lastName, view
+p3, userManagement-userList-email, hcp, userManagement, userList, columns, email, view
+p3, userManagement-userList-phone, hcp, userManagement, userList, columns, phone, view
+p3, userManagement-userList-role, hcp, userManagement, userList, columns, role, view
+p3, userManagement-userList-department, hcp, userManagement, userList, columns, department, view
+
 # Role -> Permissions
 g, User Access Support Initiator, userManagement-dashboard
+g, User Access Support Initiator, userManagement-page
 g, User Access Support Initiator, userManagement-search
+g, User Access Support Initiator, userManagement-listUsers
 g, User Access Support Initiator, userManagement-createUser
 g, User Access Support Initiator, userManagement-updateUser
 g, User Access Support Initiator, userManagement-deactivateUser
+g, User Access Support Initiator, userManagement-activateUser
 g, User Access Support Initiator, userManagement-user-basicDetails
 g, User Access Support Initiator, userManagement-user-contactDetails
 g, User Access Support Initiator, userManagement-user-roleAccess
+
+# Role -> Field-Level Permissions (p3)
+g, User Access Support Initiator, userManagement-user-basicDetails-firstName
+g, User Access Support Initiator, userManagement-user-basicDetails-lastName
+g, User Access Support Initiator, userManagement-user-basicDetails-employeeId
+g, User Access Support Initiator, userManagement-user-contactDetails-email
+g, User Access Support Initiator, userManagement-user-contactDetails-phone
+g, User Access Support Initiator, userManagement-user-contactDetails-address
+g, User Access Support Initiator, userManagement-user-roleAccess-role
+g, User Access Support Initiator, userManagement-user-roleAccess-department
+g, User Access Support Initiator, userManagement-userList-employeeId
+g, User Access Support Initiator, userManagement-userList-firstName
+g, User Access Support Initiator, userManagement-userList-lastName
+g, User Access Support Initiator, userManagement-userList-email
+g, User Access Support Initiator, userManagement-userList-phone
+g, User Access Support Initiator, userManagement-userList-role
+g, User Access Support Initiator, userManagement-userList-department
 
 # Menu mappings
 g, User Access Support Initiator, dashboard

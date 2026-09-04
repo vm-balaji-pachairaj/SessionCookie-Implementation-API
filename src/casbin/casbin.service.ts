@@ -3,6 +3,7 @@ import {
   newEnforcer,
   Enforcer,
   newModelFromString,
+  EnforceContext,
 } from 'casbin';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -19,6 +20,17 @@ interface CasbinPolicyRow {
   v3: string | null;
   v4: string | null;
   v5: string | null;
+  v6: string | null;
+}
+
+export interface FieldPermission {
+  permission: string;
+  lob: string;
+  page: string;
+  module: string;
+  section: string;
+  field: string;
+  access: string;
 }
 
 export interface MenuInfo {
@@ -62,6 +74,7 @@ export class CasbinService implements OnModuleInit {
 
       await this.seedPoliciesFromCsvIfDatabaseIsEmpty();
       await this.seedP2MenusIfMissing();
+      await this.seedP3FieldPoliciesIfMissing();
 
       // The adapter loads casbin.casbin_rule into the enforcer and persists
       // later policy mutations through the same table.
@@ -155,6 +168,59 @@ export class CasbinService implements OnModuleInit {
 
   /**
    * ------------------------------------------------------------
+   * Backfills 'p3' field-level policy rows (plus the 'g' grants that
+   * target them) even when casbin_rule already has other policy data, so a
+   * pre-existing (non-empty) table still picks up field-level access
+   * definitions added to the CSVs after the initial seed.
+   * ------------------------------------------------------------
+   */
+  private async seedP3FieldPoliciesIfMissing(): Promise<void> {
+    const csvPolicies = await this.readPoliciesFromCsv();
+    const p3Policies = csvPolicies.filter((policy) => policy.ptype === 'p3');
+    if (p3Policies.length === 0) {
+      return;
+    }
+
+    const p3Names = new Set(p3Policies.map((policy) => policy.v0));
+    const p3GrantRows = csvPolicies.filter(
+      (policy) =>
+        policy.ptype === 'g' && policy.v1 && p3Names.has(policy.v1),
+    );
+
+    const candidates = [...p3Policies, ...p3GrantRows];
+    // PostgreSQL considers NULL values distinct in a UNIQUE constraint. Since
+    // grouping rows leave v2..v6 NULL, createMany({ skipDuplicates: true })
+    // would reinsert those grants on every restart. Check the full record
+    // first so newly added p3 CSV rows are backfilled safely into a database
+    // that already contains older field policies.
+    const missingPolicies = (
+      await Promise.all(
+        candidates.map(async (policy) => {
+          const existing = await this.prisma.casbin_rule.findFirst({
+            where: policy,
+            select: { id: true },
+          });
+          return existing ? null : policy;
+        }),
+      )
+    ).filter((policy): policy is CasbinPolicyRow => policy !== null);
+
+    if (missingPolicies.length === 0) {
+      this.logger.log('P3 field-policy seed is already up to date');
+      return;
+    }
+
+    const { count } = await this.prisma.casbin_rule.createMany({ data: missingPolicies });
+
+    this.logger.log(
+      `Inserted ${count} new p3 field-policy/grant row(s) from CSV files (out of ${
+        p3Policies.length + p3GrantRows.length
+      } total CSV p3 rows)`,
+    );
+  }
+
+  /**
+   * ------------------------------------------------------------
    * Read all CSV files.
    *
    * The CSV is converted into:
@@ -243,7 +309,7 @@ export class CasbinService implements OnModuleInit {
 
           const [ptype, ...policyValues] = values;
 
-          if (!['p', 'p2', 'g', 'g2', 'g3'].includes(ptype)) {
+          if (!['p', 'p2', 'p3', 'g', 'g2', 'g3'].includes(ptype)) {
             this.logger.warn(
               `Unknown policy type "${ptype}" in ${file}:${index + 1}`,
             );
@@ -251,9 +317,9 @@ export class CasbinService implements OnModuleInit {
             continue;
           }
 
-          if (policyValues.length > 6) {
+          if (policyValues.length > 7) {
             throw new Error(
-              `Policy contains more than 6 values`,
+              `Policy contains more than 7 values`,
             );
           }
 
@@ -265,6 +331,7 @@ export class CasbinService implements OnModuleInit {
             v3: policyValues[3] ?? null,
             v4: policyValues[4] ?? null,
             v5: policyValues[5] ?? null,
+            v6: policyValues[6] ?? null,
           });
         } catch (error) {
           this.logger.error(
@@ -326,6 +393,43 @@ export class CasbinService implements OnModuleInit {
     }
 
     return this.enforcer.hasGroupingPolicy(role, key);
+  }
+
+  /**
+   * P3 (field-level) enforcement. node-casbin's default enforce() always
+   * runs matcher 'm' against ptype 'p', so field checks must go through
+   * enforceWithMatcher against 'm3'/'p3' instead. The matcher text is read
+   * live from the loaded model (rbac.conf stays the single source of truth).
+   */
+  async enforceField(
+    sub: string,
+    lob: string,
+    page: string,
+    mod: string,
+    sec: string,
+    field: string,
+    access: string,
+  ): Promise<boolean> {
+    const matcher = this.enforcer
+      .getModel()
+      .model.get('m')
+      ?.get('m3')?.value;
+
+    if (!matcher) {
+      throw new Error('m3 matcher not found in the Casbin model');
+    }
+
+    return this.enforcer.enforceWithMatcher(
+      matcher,
+      new EnforceContext('r3', 'p3', 'e', 'm3'),
+      sub,
+      lob,
+      page,
+      mod,
+      sec,
+      field,
+      access,
+    );
   }
 
   /**
@@ -400,6 +504,48 @@ export class CasbinService implements OnModuleInit {
     }
 
     return permissions;
+  }
+
+  /**
+   * Get field-level (p3) permissions assigned to a role — same 'g'
+   * grouping mechanism as getPermissionsForRole, but resolved against the
+   * 'p3' named policy instead of the default 'p' one.
+   */
+  async getFieldPermissionsForRole(
+    roleName: string,
+  ): Promise<FieldPermission[]> {
+    const groupingPolicies =
+      await this.enforcer.getFilteredGroupingPolicy(
+        0,
+        roleName,
+      );
+
+    const fieldPermissions: FieldPermission[] = [];
+
+    for (const grouping of groupingPolicies) {
+      const permissionName = grouping[1];
+
+      const policies =
+        await this.enforcer.getFilteredNamedPolicy(
+          'p3',
+          0,
+          permissionName,
+        );
+
+      for (const policy of policies) {
+        fieldPermissions.push({
+          permission: policy[0],
+          lob: policy[1],
+          page: policy[2],
+          module: policy[3],
+          section: policy[4],
+          field: policy[5],
+          access: policy[6],
+        });
+      }
+    }
+
+    return fieldPermissions;
   }
 
   /**

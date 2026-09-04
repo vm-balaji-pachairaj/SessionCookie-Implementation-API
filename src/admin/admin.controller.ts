@@ -70,7 +70,7 @@ export class AdminController {
   ) {
     return this.adminService.getPolicyDefinitions(
       decodeURIComponent(permission),
-      ptype === 'p2' ? 'p2' : 'p',
+      ptype === 'p2' ? 'p2' : ptype === 'p3' ? 'p3' : 'p',
     );
   }
 
@@ -84,6 +84,7 @@ export class AdminController {
       page?: string;
       module?: string;
       section?: string;
+      field?: string;
       access?: string;
       key?: string;
     },

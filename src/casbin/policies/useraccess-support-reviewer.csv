@@ -1,6 +1,8 @@
 # Policies
 p, userManagement-dashboard, hcp, userManagement, dashboard, view, edit
+p, userManagement-page, hcp, userManagement, user, page, view
 p, userManagement-search, hcp, userManagement, search, search, view
+p, userManagement-listUsers, hcp, userManagement, user, list, view
 p, userManagement-reviewPending, hcp, userManagement, reviewPending, list, edit
 p, userManagement-updateUser, hcp, userManagement, user, update, edit
 p, userManagement-deactivateUser, hcp, userManagement, user, deactivate, edit
@@ -10,15 +12,49 @@ p, userManagement-user-basicDetails-view, hcp, userManagement, userForm, basicDe
 p, userManagement-user-contactDetails-view, hcp, userManagement, userForm, contactDetails, view
 p, userManagement-user-roleAccess, hcp, userManagement, userForm, roleAccess, edit
 
+# User Form - Field Level (p3: perm, lob, page, mod, sec, field, access)
+p3, userManagement-user-basicDetails-firstName-view, hcp, userManagement, userForm, basicDetails, firstName, view
+p3, userManagement-user-basicDetails-lastName-view, hcp, userManagement, userForm, basicDetails, lastName, view
+p3, userManagement-user-basicDetails-employeeId-view, hcp, userManagement, userForm, basicDetails, employeeId, view
+p3, userManagement-user-contactDetails-email-view, hcp, userManagement, userForm, contactDetails, email, view
+p3, userManagement-user-contactDetails-phone-view, hcp, userManagement, userForm, contactDetails, phone, view
+p3, userManagement-user-contactDetails-address-view, hcp, userManagement, userForm, contactDetails, address, view
+p3, userManagement-user-roleAccess-role-view, hcp, userManagement, userForm, roleAccess, role, view
+p3, userManagement-user-roleAccess-department-view, hcp, userManagement, userForm, roleAccess, department, view
+
+# Existing User List - Field Level
+p3, userManagement-userList-employeeId-view, hcp, userManagement, userList, columns, employeeId, view
+p3, userManagement-userList-firstName-view, hcp, userManagement, userList, columns, firstName, view
+p3, userManagement-userList-lastName-view, hcp, userManagement, userList, columns, lastName, view
+p3, userManagement-userList-email-view, hcp, userManagement, userList, columns, email, view
+p3, userManagement-userList-role-view, hcp, userManagement, userList, columns, role, view
+
 # Role -> Permissions
 g, User Access Support Reviewer, userManagement-dashboard
+g, User Access Support Reviewer, userManagement-page
 g, User Access Support Reviewer, userManagement-search
+g, User Access Support Reviewer, userManagement-listUsers
 g, User Access Support Reviewer, userManagement-reviewPending
 g, User Access Support Reviewer, userManagement-updateUser
 g, User Access Support Reviewer, userManagement-deactivateUser
 g, User Access Support Reviewer, userManagement-user-basicDetails-view
 g, User Access Support Reviewer, userManagement-user-contactDetails-view
 g, User Access Support Reviewer, userManagement-user-roleAccess
+
+# Role -> Field-Level Permissions (p3)
+g, User Access Support Reviewer, userManagement-user-basicDetails-firstName-view
+g, User Access Support Reviewer, userManagement-user-basicDetails-lastName-view
+g, User Access Support Reviewer, userManagement-user-basicDetails-employeeId-view
+g, User Access Support Reviewer, userManagement-user-contactDetails-email-view
+g, User Access Support Reviewer, userManagement-user-contactDetails-phone-view
+g, User Access Support Reviewer, userManagement-user-contactDetails-address-view
+g, User Access Support Reviewer, userManagement-user-roleAccess-role-view
+g, User Access Support Reviewer, userManagement-user-roleAccess-department-view
+g, User Access Support Reviewer, userManagement-userList-employeeId-view
+g, User Access Support Reviewer, userManagement-userList-firstName-view
+g, User Access Support Reviewer, userManagement-userList-lastName-view
+g, User Access Support Reviewer, userManagement-userList-email-view
+g, User Access Support Reviewer, userManagement-userList-role-view
 
 # Menu mappings
 g, User Access Support Reviewer, dashboard
