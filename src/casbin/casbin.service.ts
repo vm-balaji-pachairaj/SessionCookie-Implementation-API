@@ -10,18 +10,7 @@ import * as fs from 'fs';
 import { PrismaService } from '../PrismaService/prisma.service';
 import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
 import { parseP2Metadata } from './p2-metadata.util';
-// import { MENU_CONFIG } from "./menu.config";
-
-interface CasbinPolicyRow {
-  ptype: string;
-  v0: string | null;
-  v1: string | null;
-  v2: string | null;
-  v3: string | null;
-  v4: string | null;
-  v5: string | null;
-  v6: string | null;
-}
+import { createPolicyBundleTables } from '../../prisma/create-policy-bundle-tables';
 
 export interface FieldPermission {
   permission: string;
@@ -43,23 +32,39 @@ export interface MenuInfo {
   order: number;
 }
 
+export interface EnforceOptions {
+  sub: string;
+  lob?: string;
+  page?: string;
+  module?: string;
+  section?: string;
+  field?: string;
+  access?: string;
+  key?: string;
+  ptype?: 'p' | 'p2' | 'p3';
+}
+
 @Injectable()
 export class CasbinService implements OnModuleInit {
   private enforcer!: Enforcer;
-
   private readonly logger = new Logger(CasbinService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  // In-memory lookup sets derived directly from Casbin enforcer rules
+  // role -> set of assigned bundle names (from g3)
+  private roleBundles = new Map<string, Set<string>>();
+  // bundle -> set of contained policy names (from g)
+  private bundlePolicies = new Map<string, Set<string>>();
+
+  constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
     try {
-      this.logger.log('Initializing Casbin...');
+      this.logger.log('Initializing Casbin with Policy Bundle architecture...');
 
-      // ------------------------------------------------------------
-      // 1. Load Casbin model
-      // ------------------------------------------------------------
+      // 1. Ensure PostgreSQL schema & tables exist idempotently
+      await createPolicyBundleTables();
+
+      // 2. Load Casbin model configuration
       const modelPath = path.join(
         process.cwd(),
         'src',
@@ -68,300 +73,94 @@ export class CasbinService implements OnModuleInit {
         'rbac.conf',
       );
 
-      const model = newModelFromString(
-        fs.readFileSync(modelPath, 'utf-8'),
-      );
+      const model = newModelFromString(fs.readFileSync(modelPath, 'utf-8'));
 
-      await this.seedPoliciesFromCsvIfDatabaseIsEmpty();
-      await this.seedP2MenusIfMissing();
-      await this.seedP3FieldPoliciesIfMissing();
-
-      // The adapter loads casbin.casbin_rule into the enforcer and persists
-      // later policy mutations through the same table.
+      // 3. Initialize the Casbin enforcer using Prisma adapter (reads directly from database)
       this.enforcer = await newEnforcer(
         model,
         new PrismaCasbinAdapter(this.prisma),
       );
 
-      this.logger.log('Casbin enforcer created from database policies');
+      // 4. Register custom matcher function `g3_has_policy`
+      // Used by matcher: m = g3_has_policy(r.sub, p.perm) && ...
+      await this.enforcer.addFunction(
+        'g3_has_policy',
+        (sub: string, perm: string): boolean => this.g3_has_policy(sub, perm),
+      );
+
+      // 5. Build in-memory fast index from loaded rules
+      await this.rebuildCacheFromEnforcer();
 
       this.logger.log(
-        'Casbin initialized successfully',
+        `Casbin initialized successfully. Loaded ${this.roleBundles.size} role-bundle mapping(s) and ${this.bundlePolicies.size} bundle-policy mapping(s).`,
       );
     } catch (error) {
       this.logger.error(
         'Failed to initialize Casbin',
-        error instanceof Error
-          ? error.stack
-          : String(error),
+        error instanceof Error ? error.stack : String(error),
       );
-
       throw error;
     }
   }
 
   /**
-   * ------------------------------------------------------------
-   * CSV → DB bootstrap
-   *
-   * Only seeds when casbin.casbin_rule is empty, so restarts never
-   * re-insert or duplicate policy rows once the table has been seeded.
-   * ------------------------------------------------------------
+   * Rebuilds fast in-memory sets from the enforcer's loaded rules.
+   * Called on startup and whenever rules are reloaded from the database.
    */
-  private async seedPoliciesFromCsvIfDatabaseIsEmpty(): Promise<void> {
-    const existingCount = await this.prisma.casbin_rule.count();
-    if (existingCount > 0) {
-      this.logger.log(
-        `Skipping Casbin policy seed: casbin_rule already has ${existingCount} row(s)`,
-      );
-      return;
+  private async rebuildCacheFromEnforcer(): Promise<void> {
+    this.roleBundles.clear();
+    this.bundlePolicies.clear();
+
+    // Load g3 rules: (g3, role, bundle)
+    const g3Rules = await this.enforcer.getNamedGroupingPolicy('g3');
+    for (const [role, bundle] of g3Rules) {
+      if (!role || !bundle) continue;
+      if (!this.roleBundles.has(role)) {
+        this.roleBundles.set(role, new Set());
+      }
+      this.roleBundles.get(role)!.add(bundle);
     }
 
-    const csvPolicies = await this.readPoliciesFromCsv();
-    if (csvPolicies.length === 0) {
-      throw new Error('No Casbin policies were found in the CSV files');
+    // Load g rules: (g, bundle, policy)
+    const gRules = await this.enforcer.getGroupingPolicy();
+    for (const [bundle, policy] of gRules) {
+      if (!bundle || !policy) continue;
+      if (!this.bundlePolicies.has(bundle)) {
+        this.bundlePolicies.set(bundle, new Set());
+      }
+      this.bundlePolicies.get(bundle)!.add(policy);
     }
-
-    const { count } = await this.prisma.casbin_rule.createMany({
-      data: csvPolicies,
-      skipDuplicates: true,
-    });
-
-    this.logger.log(
-      `Inserted ${count} new policy row(s) from CSV files (out of ${csvPolicies.length} total CSV rows)`,
-    );
   }
 
   /**
-   * ------------------------------------------------------------
-   * Backfills 'p2' menu rows even when casbin_rule already has other
-   * policy data, so a pre-existing (non-empty) table still picks up
-   * menu definitions added to the CSVs after the initial seed.
-   * ------------------------------------------------------------
+   * Synchronous check used by Casbin matchers:
+   * Returns true if role `sub` is assigned to any Policy Bundle that contains policy `perm`.
    */
-  private async seedP2MenusIfMissing(): Promise<void> {
-    const existingP2Count = await this.prisma.casbin_rule.count({
-      where: { ptype: 'p2' },
-    });
-    if (existingP2Count > 0) {
-      this.logger.log(
-        `Skipping P2 menu seed: casbin_rule already has ${existingP2Count} p2 row(s)`,
-      );
-      return;
-    }
+  g3_has_policy(sub: string, perm: string): boolean {
+    if (!sub || !perm) return false;
+    const bundles = this.roleBundles.get(sub);
+    if (!bundles || bundles.size === 0) return false;
 
-    const csvPolicies = await this.readPoliciesFromCsv();
-    const p2Policies = csvPolicies.filter((policy) => policy.ptype === 'p2');
-    if (p2Policies.length === 0) {
-      return;
-    }
-
-    const { count } = await this.prisma.casbin_rule.createMany({
-      data: p2Policies,
-      skipDuplicates: true,
-    });
-
-    this.logger.log(
-      `Inserted ${count} new p2 menu row(s) from CSV files (out of ${p2Policies.length} total CSV p2 rows)`,
-    );
-  }
-
-  /**
-   * ------------------------------------------------------------
-   * Backfills 'p3' field-level policy rows (plus the 'g' grants that
-   * target them) even when casbin_rule already has other policy data, so a
-   * pre-existing (non-empty) table still picks up field-level access
-   * definitions added to the CSVs after the initial seed.
-   * ------------------------------------------------------------
-   */
-  private async seedP3FieldPoliciesIfMissing(): Promise<void> {
-    const csvPolicies = await this.readPoliciesFromCsv();
-    const p3Policies = csvPolicies.filter((policy) => policy.ptype === 'p3');
-    if (p3Policies.length === 0) {
-      return;
-    }
-
-    const p3Names = new Set(p3Policies.map((policy) => policy.v0));
-    const p3GrantRows = csvPolicies.filter(
-      (policy) =>
-        policy.ptype === 'g' && policy.v1 && p3Names.has(policy.v1),
-    );
-
-    const candidates = [...p3Policies, ...p3GrantRows];
-    // PostgreSQL considers NULL values distinct in a UNIQUE constraint. Since
-    // grouping rows leave v2..v6 NULL, createMany({ skipDuplicates: true })
-    // would reinsert those grants on every restart. Check the full record
-    // first so newly added p3 CSV rows are backfilled safely into a database
-    // that already contains older field policies.
-    const missingPolicies = (
-      await Promise.all(
-        candidates.map(async (policy) => {
-          const existing = await this.prisma.casbin_rule.findFirst({
-            where: policy,
-            select: { id: true },
-          });
-          return existing ? null : policy;
-        }),
-      )
-    ).filter((policy): policy is CasbinPolicyRow => policy !== null);
-
-    if (missingPolicies.length === 0) {
-      this.logger.log('P3 field-policy seed is already up to date');
-      return;
-    }
-
-    const { count } = await this.prisma.casbin_rule.createMany({ data: missingPolicies });
-
-    this.logger.log(
-      `Inserted ${count} new p3 field-policy/grant row(s) from CSV files (out of ${
-        p3Policies.length + p3GrantRows.length
-      } total CSV p3 rows)`,
-    );
-  }
-
-  /**
-   * ------------------------------------------------------------
-   * Read all CSV files.
-   *
-   * The CSV is converted into:
-   *
-   * p, permission, lob, page, module, section, access
-   *
-   * =>
-   *
-   * {
-   *   ptype: 'p',
-   *   v0: 'permission',
-   *   v1: 'lob',
-   *   v2: 'page',
-   *   v3: 'module',
-   *   v4: 'section',
-   *   v5: 'access'
-   * }
-   * ------------------------------------------------------------
-   */
-  private async readPoliciesFromCsv(): Promise<
-    CasbinPolicyRow[]
-  > {
-    const policyDir = path.join(
-      process.cwd(),
-      'src',
-      'casbin',
-      'policies',
-    );
-
-    this.logger.log(
-      `Looking for policies at: ${policyDir}`,
-    );
-
-    if (!fs.existsSync(policyDir)) {
-      throw new Error(
-        `Policy directory not found: ${policyDir}`,
-      );
-    }
-
-    const csvFiles = fs
-      .readdirSync(policyDir)
-      .filter((file) =>
-        file.toLowerCase().endsWith('.csv'),
-      );
-
-    if (csvFiles.length === 0) {
-      throw new Error(
-        `No policy CSV files found in ${policyDir}`,
-      );
-    }
-
-    this.logger.log(
-      `Found ${csvFiles.length} policy CSV file(s)`,
-    );
-
-    const policies: CasbinPolicyRow[] = [];
-
-    for (const file of csvFiles) {
-      const filePath = path.join(
-        policyDir,
-        file,
-      );
-
-      this.logger.log(
-        `Reading policy file: ${file}`,
-      );
-
-      const content = fs.readFileSync(
-        filePath,
-        'utf-8',
-      );
-
-      const lines = content
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .filter((line) => !line.startsWith('#'));
-
-      for (const [index, line] of lines.entries()) {
-        try {
-          const values = this.parseCsvLine(line);
-
-          if (values.length === 0) {
-            continue;
-          }
-
-          const [ptype, ...policyValues] = values;
-
-          if (!['p', 'p2', 'p3', 'g', 'g2', 'g3'].includes(ptype)) {
-            this.logger.warn(
-              `Unknown policy type "${ptype}" in ${file}:${index + 1}`,
-            );
-
-            continue;
-          }
-
-          if (policyValues.length > 7) {
-            throw new Error(
-              `Policy contains more than 7 values`,
-            );
-          }
-
-          policies.push({
-            ptype,
-            v0: policyValues[0] ?? null,
-            v1: policyValues[1] ?? null,
-            v2: policyValues[2] ?? null,
-            v3: policyValues[3] ?? null,
-            v4: policyValues[4] ?? null,
-            v5: policyValues[5] ?? null,
-            v6: policyValues[6] ?? null,
-          });
-        } catch (error) {
-          this.logger.error(
-            `Failed to parse ${file}:${index + 1}`,
-            error instanceof Error
-              ? error.message
-              : String(error),
-          );
-        }
+    for (const bundle of bundles) {
+      const policies = this.bundlePolicies.get(bundle);
+      if (policies && policies.has(perm)) {
+        return true;
       }
     }
-
-    return policies;
+    return false;
   }
 
-  /**
-   * Simple CSV parser.
-   */
-  private parseCsvLine(
-    line: string,
-  ): string[] {
-    return line
-      .split(',')
-      .map((value) => value.trim());
-  }
+  // ==========================================================================
+  // Centralized Enforcement Entry Point
+  // Handles:
+  // - Section-level policies (P)
+  // - Menu-level policies (P2)
+  // - Field-level policies (P3)
+  // - Parameter objects (EnforceOptions)
+  // ==========================================================================
 
-  /**
-   * Check whether a role is allowed to perform
-   * an action on a specific resource.
-   */
+  async enforce(options: EnforceOptions): Promise<boolean>;
+  async enforce(sub: string, menuKey: string): Promise<boolean>;
   async enforce(
     sub: string,
     lob: string,
@@ -369,39 +168,80 @@ export class CasbinService implements OnModuleInit {
     mod: string,
     sec: string,
     access: string,
+  ): Promise<boolean>;
+  async enforce(
+    sub: string,
+    lob: string,
+    page: string,
+    mod: string,
+    sec: string,
+    field: string,
+    access: string,
+  ): Promise<boolean>;
+  async enforce(
+    arg1: string | EnforceOptions,
+    arg2?: string,
+    arg3?: string,
+    arg4?: string,
+    arg5?: string,
+    arg6?: string,
+    arg7?: string,
   ): Promise<boolean> {
-    return this.enforcer.enforce(
-      sub,
-      lob,
-      page,
-      mod,
-      sec,
-      access,
-    );
+    if (typeof arg1 === 'object') {
+      return this.enforceWithOptions(arg1);
+    }
+
+    const sub = arg1;
+
+    // 2 string arguments: (sub, menuKey) -> P2 Menu enforcement
+    if (arg2 !== undefined && arg3 === undefined) {
+      return this.enforceMenu(sub, arg2);
+    }
+
+    // 7 string arguments: (sub, lob, page, mod, sec, field, access) -> P3 Field enforcement
+    if (arg7 !== undefined) {
+      return this.enforceFieldInternal(
+        sub,
+        arg2!,
+        arg3!,
+        arg4!,
+        arg5!,
+        arg6!,
+        arg7,
+      );
+    }
+
+    // 6 string arguments: (sub, lob, page, mod, sec, access) -> P Section enforcement
+    if (arg6 !== undefined) {
+      return this.enforcer.enforce(sub, arg2!, arg3!, arg4!, arg5!, arg6);
+    }
+
+    return false;
   }
 
-  /**
-   * P2 (menu) policies have no [matchers] entry of their own — they are
-   * granted purely via a direct 'g' mapping (role -> menu key), the same
-   * mechanism getMenusForRole() resolves. "Enforcing" a p2 policy therefore
-   * means: the key is a real p2 policy AND the role has that direct grant.
-   */
-  async enforceP2(role: string, key: string): Promise<boolean> {
+  private async enforceWithOptions(options: EnforceOptions): Promise<boolean> {
+    const { sub, lob = '', page = '', module = '', section = '', field, access = '', key, ptype } = options;
+
+    if (ptype === 'p2' || (key && !page && !module)) {
+      return this.enforceMenu(sub, key ?? '');
+    }
+
+    if (ptype === 'p3' || field !== undefined) {
+      return this.enforceFieldInternal(sub, lob, page, module, section, field ?? '', access);
+    }
+
+    return this.enforcer.enforce(sub, lob, page, module, section, access);
+  }
+
+  private async enforceMenu(role: string, key: string): Promise<boolean> {
     const menu = await this.getMenuInfo(key);
     if (!menu) {
       return false;
     }
-
-    return this.enforcer.hasGroupingPolicy(role, key);
+    return this.g3_has_policy(role, key);
   }
 
-  /**
-   * P3 (field-level) enforcement. node-casbin's default enforce() always
-   * runs matcher 'm' against ptype 'p', so field checks must go through
-   * enforceWithMatcher against 'm3'/'p3' instead. The matcher text is read
-   * live from the loaded model (rbac.conf stays the single source of truth).
-   */
-  async enforceField(
+  private async enforceFieldInternal(
     sub: string,
     lob: string,
     page: string,
@@ -432,17 +272,76 @@ export class CasbinService implements OnModuleInit {
     );
   }
 
+  // ==========================================================================
+  // Role & Policy Bundle Resolution Methods
+  // ==========================================================================
+
   /**
-   * Get all g2 mappings for a role.
+   * Get all Policy Bundles assigned to a role.
    */
-  async getLandingPagesForRole(
-    roleName: string,
-  ): Promise<string[][]> {
-    return this.enforcer.getFilteredNamedGroupingPolicy(
-      'g2',
-      0,
-      roleName,
-    );
+  async getBundlesForRole(roleName: string): Promise<string[]> {
+    const bundles = this.roleBundles.get(roleName);
+    return bundles ? Array.from(bundles).sort() : [];
+  }
+
+  /**
+   * Assign a Policy Bundle to a role using Casbin g3.
+   */
+  async assignBundleToRole(role: string, bundle: string): Promise<void> {
+    await this.enforcer.addNamedGroupingPolicy('g3', role, bundle);
+    if (!this.roleBundles.has(role)) {
+      this.roleBundles.set(role, new Set());
+    }
+    this.roleBundles.get(role)!.add(bundle);
+  }
+
+  /**
+   * Remove a Policy Bundle from a role (removes g3 link).
+   */
+  async removeBundleFromRole(role: string, bundle: string): Promise<void> {
+    await this.enforcer.removeNamedGroupingPolicy('g3', role, bundle);
+    const bundles = this.roleBundles.get(role);
+    if (bundles) {
+      bundles.delete(bundle);
+    }
+  }
+
+  /**
+   * Get all policies contained in a Policy Bundle.
+   */
+  async getPoliciesForBundle(bundleName: string): Promise<string[]> {
+    const policies = this.bundlePolicies.get(bundleName);
+    return policies ? Array.from(policies).sort() : [];
+  }
+
+  /**
+   * Add an individual policy to a Policy Bundle using Casbin g.
+   */
+  async addPolicyToBundle(bundle: string, policy: string): Promise<void> {
+    await this.enforcer.addGroupingPolicy(bundle, policy);
+    if (!this.bundlePolicies.has(bundle)) {
+      this.bundlePolicies.set(bundle, new Set());
+    }
+    this.bundlePolicies.get(bundle)!.add(policy);
+  }
+
+  /**
+   * Remove an individual policy from a Policy Bundle (removes g link).
+   */
+  async removePolicyFromBundle(bundle: string, policy: string): Promise<void> {
+    await this.enforcer.removeGroupingPolicy(bundle, policy);
+    const policies = this.bundlePolicies.get(bundle);
+    if (policies) {
+      policies.delete(policy);
+    }
+  }
+
+  /**
+   * Reload all policies from the database into the enforcer and rebuild memory cache.
+   */
+  async reloadPolicy(): Promise<void> {
+    await this.enforcer.loadPolicy();
+    await this.rebuildCacheFromEnforcer();
   }
 
   /**
@@ -453,26 +352,17 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Reload all policies from the database into the enforcer.
-   * Used by the admin console after a raw DB policy change (add/remove)
-   * instead of incremental enforcer.addPolicy/removePolicy calls.
+   * Get all g2 mappings for a role (landing page).
    */
-  async reloadPolicy(): Promise<void> {
-    await this.enforcer.loadPolicy();
+  async getLandingPagesForRole(roleName: string): Promise<string[][]> {
+    return this.enforcer.getFilteredNamedGroupingPolicy('g2', 0, roleName);
   }
 
   /**
-   * Get permissions for a role.
+   * Get section-level permissions (P) for a role, resolved through its assigned Policy Bundles.
    */
-  async getPermissionsForRole(
-    roleName: string,
-  ) {
-    const groupingPolicies =
-      await this.enforcer.getFilteredGroupingPolicy(
-        0,
-        roleName,
-      );
-
+  async getPermissionsForRole(roleName: string) {
+    const bundles = await this.getBundlesForRole(roleName);
     const permissions: Array<{
       permission: string;
       lob: string;
@@ -482,24 +372,26 @@ export class CasbinService implements OnModuleInit {
       access: string;
     }> = [];
 
-    for (const grouping of groupingPolicies) {
-      const permissionName = grouping[1];
+    const seenPolicies = new Set<string>();
 
-      const policies =
-        await this.enforcer.getFilteredPolicy(
-          0,
-          permissionName,
-        );
+    for (const bundle of bundles) {
+      const policyNames = await this.getPoliciesForBundle(bundle);
 
-      for (const policy of policies) {
-        permissions.push({
-          permission: policy[0],
-          lob: policy[1],
-          page: policy[2],
-          module: policy[3],
-          section: policy[4],
-          access: policy[5],
-        });
+      for (const policyName of policyNames) {
+        if (seenPolicies.has(policyName)) continue;
+        seenPolicies.add(policyName);
+
+        const policies = await this.enforcer.getFilteredPolicy(0, policyName);
+        for (const policy of policies) {
+          permissions.push({
+            permission: policy[0],
+            lob: policy[1],
+            page: policy[2],
+            module: policy[3],
+            section: policy[4],
+            access: policy[5],
+          });
+        }
       }
     }
 
@@ -507,41 +399,37 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Get field-level (p3) permissions assigned to a role — same 'g'
-   * grouping mechanism as getPermissionsForRole, but resolved against the
-   * 'p3' named policy instead of the default 'p' one.
+   * Get field-level permissions (P3) for a role, resolved through its assigned Policy Bundles.
    */
-  async getFieldPermissionsForRole(
-    roleName: string,
-  ): Promise<FieldPermission[]> {
-    const groupingPolicies =
-      await this.enforcer.getFilteredGroupingPolicy(
-        0,
-        roleName,
-      );
-
+  async getFieldPermissionsForRole(roleName: string): Promise<FieldPermission[]> {
+    const bundles = await this.getBundlesForRole(roleName);
     const fieldPermissions: FieldPermission[] = [];
+    const seenPolicies = new Set<string>();
 
-    for (const grouping of groupingPolicies) {
-      const permissionName = grouping[1];
+    for (const bundle of bundles) {
+      const policyNames = await this.getPoliciesForBundle(bundle);
 
-      const policies =
-        await this.enforcer.getFilteredNamedPolicy(
+      for (const policyName of policyNames) {
+        if (seenPolicies.has(policyName)) continue;
+        seenPolicies.add(policyName);
+
+        const policies = await this.enforcer.getFilteredNamedPolicy(
           'p3',
           0,
-          permissionName,
+          policyName,
         );
 
-      for (const policy of policies) {
-        fieldPermissions.push({
-          permission: policy[0],
-          lob: policy[1],
-          page: policy[2],
-          module: policy[3],
-          section: policy[4],
-          field: policy[5],
-          access: policy[6],
-        });
+        for (const policy of policies) {
+          fieldPermissions.push({
+            permission: policy[0],
+            lob: policy[1],
+            page: policy[2],
+            module: policy[3],
+            section: policy[4],
+            field: policy[5],
+            access: policy[6],
+          });
+        }
       }
     }
 
@@ -549,22 +437,15 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Look up the full P2 menu definition (lob, parent, displayName, route,
-   * icon, order) for a menu key from the enforcer's 'p2' named policy.
+   * Look up P2 menu definition for a menu key.
    */
-  private async getMenuInfo(key: string): Promise<MenuInfo | null> {
-    const [p2Policy] = await this.enforcer.getFilteredNamedPolicy(
-      'p2',
-      0,
-      key,
-    );
-
+  async getMenuInfo(key: string): Promise<MenuInfo | null> {
+    const [p2Policy] = await this.enforcer.getFilteredNamedPolicy('p2', 0, key);
     if (!p2Policy) {
       return null;
     }
 
     const [menuKey, lob, parent, meta] = p2Policy;
-
     return {
       key: menuKey,
       lob,
@@ -574,11 +455,10 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Get all P2 menu definitions from the database.
+   * Get all P2 menu definitions.
    */
   async getAllP2Menus(): Promise<MenuInfo[]> {
     const p2Policies = await this.enforcer.getNamedPolicy('p2');
-
     return p2Policies.map(([key, lob, parent, meta]) => ({
       key,
       lob,
@@ -588,43 +468,37 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Get the menus (with full P2 metadata) assigned to a role.
+   * Get menus assigned to a role, resolved through its assigned Policy Bundles.
    */
   async getMenusForRole(roleName: string): Promise<MenuInfo[]> {
-    const groupingPolicies =
-      await this.enforcer.getFilteredGroupingPolicy(
-        0,
-        roleName,
-      );
-
+    const bundles = await this.getBundlesForRole(roleName);
     const menus: MenuInfo[] = [];
+    const seenMenuKeys = new Set<string>();
 
-    for (const grouping of groupingPolicies) {
-      const target = grouping[1];
+    for (const bundle of bundles) {
+      const policyNames = await this.getPoliciesForBundle(bundle);
 
-      if (!target) {
-        continue;
-      }
+      for (const target of policyNames) {
+        if (seenMenuKeys.has(target)) continue;
+        seenMenuKeys.add(target);
 
-      // Check whether this target is a permission.
-      const permissionPolicies =
-        await this.enforcer.getFilteredPolicy(
+        // Check if target is a P policy
+        const permissionPolicies = await this.enforcer.getFilteredPolicy(
           0,
           target,
         );
 
-      // If there is no p policy for this target,
-      // it is a menu mapping — resolve its full p2 definition.
-      if (permissionPolicies.length === 0) {
-        const menuInfo = await this.getMenuInfo(target);
-        if (menuInfo) {
-          menus.push(menuInfo);
+        // If not a P policy, resolve as P2 menu definition
+        if (permissionPolicies.length === 0) {
+          const menuInfo = await this.getMenuInfo(target);
+          if (menuInfo) {
+            menus.push(menuInfo);
+          }
         }
       }
     }
 
     const uniqueMenus = new Map(menus.map((menu) => [menu.key, menu]));
-
     return [...uniqueMenus.values()];
   }
 }

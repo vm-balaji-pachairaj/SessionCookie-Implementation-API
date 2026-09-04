@@ -245,8 +245,14 @@ async getUsers(
         : ['email', 'phone', 'address'].includes(field)
           ? 'contactDetails'
           : 'roleAccess';
-      const allowed = await this.casbinService.enforceField(
-        roleName, 'hcp', 'userManagement', 'userForm', section, field, 'edit',
+      const allowed = await this.casbinService.enforce(
+        roleName,
+        'hcp',
+        'userManagement',
+        'userForm',
+        section,
+        field,
+        'edit',
       );
       if (!allowed) {
         throw new ForbiddenException(`You do not have edit access to the ${field} field`);
@@ -271,11 +277,23 @@ async getUsers(
           : ['email', 'phone', 'address'].includes(field)
             ? 'contactDetails'
             : 'roleAccess';
-      const canView = await this.casbinService.enforceField(
-        roleName, 'hcp', 'userManagement', module, section, field, 'view',
+      const canView = await this.casbinService.enforce(
+        roleName,
+        'hcp',
+        'userManagement',
+        module,
+        section,
+        field,
+        'view',
       );
-      const canEdit = await this.casbinService.enforceField(
-        roleName, 'hcp', 'userManagement', module, section, field, 'edit',
+      const canEdit = await this.casbinService.enforce(
+        roleName,
+        'hcp',
+        'userManagement',
+        module,
+        section,
+        field,
+        'edit',
       );
       if (canView || canEdit) result[field as keyof T] = user[field as keyof T];
     }
