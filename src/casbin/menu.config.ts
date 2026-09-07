@@ -6,23 +6,33 @@ export interface MenuConfig {
 
 export const MENU_CONFIG: MenuConfig[] = [
   {
-    key: "dashboard",
-    label: "Dashboard",
-    route: "/dashboard",
+    key: 'dashboard',
+    label: 'Dashboard',
+    route: '/dashboard',
   },
   {
-    key: "search",
-    label: "Search",
-    route: "/search",
+    key: 'user_management',
+    label: 'User Management',
+    route: '/user-management',
   },
   {
-    key: "userManagement",
-    label: "User Management",
-    route: "/user-management",
+    key: 'sales',
+    label: 'Sales',
+    route: '/sales',
   },
   {
-    key: "reports",
-    label: "Reports",
-    route: "/reports",
+    key: 'reports',
+    label: 'Reports',
+    route: '/reports',
+  },
+  {
+    key: 'settings',
+    label: 'Settings',
+    route: '/settings',
+  },
+  {
+    key: 'audit',
+    label: 'Audit',
+    route: '/audit',
   },
 ];

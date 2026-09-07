@@ -22,23 +22,23 @@ export class UserManagementController {
   ) {}
 
   // Search / list
-  @Get("users")
-  @CheckPolicy('hcp', 'userManagement', 'user', 'list', 'view')
+  @Get('users')
+  @CheckPolicy({ menu: 'user_management', section: 'users', access: 'read' })
   async getUsers(
-    @Query("search") search?: string,
-    @Query("includeInactive") includeInactive?: string,
+    @Query('search') search?: string,
+    @Query('includeInactive') includeInactive?: string,
     @Req() request?: Request & { user?: TokenPayload },
   ) {
     return this.userManagementService.getUsers(
       search,
-      includeInactive === "true",
+      includeInactive === 'true',
       this.getRole(request),
     );
   }
 
   // Get single user
   @Get('users/:id')
-  @CheckPolicy('hcp', 'userManagement', 'user', 'list', 'view')
+  @CheckPolicy({ menu: 'user_management', section: 'users', access: 'read' })
   async getUser(
     @Param('id') id: string,
     @Req() request?: Request & { user?: TokenPayload },
@@ -48,7 +48,7 @@ export class UserManagementController {
 
   // Create
   @Post('users')
-  @CheckPolicy('hcp', 'userManagement', 'user', 'create', 'edit')
+  @CheckPolicy({ menu: 'user_management', section: 'users', field: 'user_actions', access: 'edit' })
   async createUser(
     @Body() body: unknown,
     @Req() request?: Request & { user?: TokenPayload },
@@ -58,7 +58,7 @@ export class UserManagementController {
 
   // Update
   @Put('users/:id')
-  @CheckPolicy('hcp', 'userManagement', 'user', 'update', 'edit')
+  @CheckPolicy({ menu: 'user_management', section: 'users', field: 'user_actions', access: 'edit' })
   async updateUser(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -73,17 +73,17 @@ export class UserManagementController {
 
   // Deactivate
   @Patch('users/:id/deactivate')
-  @CheckPolicy('hcp', 'userManagement', 'user', 'deactivate', 'edit')
+  @CheckPolicy({ menu: 'user_management', section: 'users', field: 'user_actions', access: 'edit' })
   async deactivateUser(
     @Param('id') id: string,
     @Req() request?: Request & { user?: TokenPayload },
   ) {
     return this.userManagementService.deactivateUser(Number(id), this.getRole(request));
   }
-  
+
   // Activate
   @Patch('users/:id/activate')
-  @CheckPolicy('hcp', 'userManagement', 'user', 'activate', 'edit')
+  @CheckPolicy({ menu: 'user_management', section: 'users', field: 'user_actions', access: 'edit' })
   async activateUser(
     @Param('id') id: string,
     @Req() request?: Request & { user?: TokenPayload },

@@ -19,8 +19,8 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
   const TEST_BUNDLE_1 = 'Test Claims Bundle';
   const TEST_BUNDLE_2 = 'Test Analytics Bundle';
 
-  const TEST_POLICY_P = 'test-claim-process';
-  const TEST_POLICY_P2 = 'test_analytics_menu';
+  const TEST_POLICY_P = 'test_analytics_menu';
+  const TEST_POLICY_P2 = 'test-claim-process';
   const TEST_POLICY_P3 = 'test-claim-amount';
 
   beforeAll(async () => {
@@ -38,13 +38,13 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
     casbinService = app.get(CasbinService);
     adminService = app.get(AdminService);
 
-    // Setup dummy policy definitions for testing P, P2, P3
+    // Setup dummy policy definitions for testing P (Menu), P2 (Section), P3 (Field)
     const enforcer = casbinService.getEnforcer();
-    // p: perm, lob, page, mod, sec, access
-    await enforcer.addPolicy(TEST_POLICY_P, 'hcp', 'claim', 'process', 'main', 'edit');
-    // p2: key, lob, parent, meta
-    await enforcer.addNamedPolicy('p2', TEST_POLICY_P2, 'hcp', '_', 'displayName:Test Analytics|route:/test|icon:/test.svg|order:99');
-    // p3: perm, lob, page, mod, sec, field, access
+    // p (Menu): key, lob, page, meta
+    await enforcer.addPolicy(TEST_POLICY_P, 'hcp', 'test', 'displayName:Test Analytics|route:/test|icon:/test.svg|order:99');
+    // p2 (Section): perm, lob, page, mod, sec, access
+    await enforcer.addNamedPolicy('p2', TEST_POLICY_P2, 'hcp', 'claim', 'process', 'main', 'edit');
+    // p3 (Field): perm, lob, page, mod, sec, field, access
     await enforcer.addNamedPolicy('p3', TEST_POLICY_P3, 'hcp', 'claim', 'amount', 'details', 'amount', 'edit');
 
     // Clean up any test artifacts from previous runs
@@ -62,8 +62,8 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
   afterAll(async () => {
     // Teardown test rules
     const enforcer = casbinService.getEnforcer();
-    await enforcer.removePolicy(TEST_POLICY_P, 'hcp', 'claim', 'process', 'main', 'edit');
-    await enforcer.removeNamedPolicy('p2', TEST_POLICY_P2, 'hcp', '_', 'displayName:Test Analytics|route:/test|icon:/test.svg|order:99');
+    await enforcer.removePolicy(TEST_POLICY_P, 'hcp', 'test', 'displayName:Test Analytics|route:/test|icon:/test.svg|order:99');
+    await enforcer.removeNamedPolicy('p2', TEST_POLICY_P2, 'hcp', 'claim', 'process', 'main', 'edit');
     await enforcer.removeNamedPolicy('p3', TEST_POLICY_P3, 'hcp', 'claim', 'amount', 'details', 'amount', 'edit');
 
     await enforcer.removeNamedGroupingPolicy('g3', TEST_ROLE, TEST_BUNDLE_1);
@@ -154,7 +154,7 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
       const bundle1Policies = await casbinService.getPoliciesForBundle(TEST_BUNDLE_1);
 
       expect(bundle2Policies).not.toContain(TEST_POLICY_P);
-      expect(bundle1Policies).toContain(TEST_POLICY_P); // still in bundle 1
+      expect(bundle1Policies).toContain(TEST_POLICY_P);
     });
   });
 
@@ -162,11 +162,12 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
   // 3. Centralized Enforcement Tests (Role -> g3 -> Bundle -> g -> Policy)
   // ==========================================================================
   describe('Centralized Casbin Enforcement', () => {
-    // Current state:
-    // TEST_ROLE has TEST_BUNDLE_1
-    // TEST_BUNDLE_1 has TEST_POLICY_P, TEST_POLICY_P2, TEST_POLICY_P3
+    it('should ALLOW access to P (menu policy) when Role has Bundle containing the policy', async () => {
+      const allowed = await casbinService.enforce(TEST_ROLE, TEST_POLICY_P);
+      expect(allowed).toBe(true);
+    });
 
-    it('should ALLOW access to P (section policy) when Role has Bundle containing the policy', async () => {
+    it('should ALLOW access to P2 (section policy) when Role has Bundle containing the policy', async () => {
       const allowed = await casbinService.enforce(
         TEST_ROLE,
         'hcp',
@@ -175,11 +176,6 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
         'main',
         'edit',
       );
-      expect(allowed).toBe(true);
-    });
-
-    it('should ALLOW access to P2 (menu policy) when Role has Bundle containing the policy', async () => {
-      const allowed = await casbinService.enforce(TEST_ROLE, TEST_POLICY_P2);
       expect(allowed).toBe(true);
     });
 
@@ -197,8 +193,10 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
     });
 
     it('should DENY access when Role does NOT have the relevant Bundle', async () => {
-      // TEST_ROLE_2 has no bundles assigned
-      const allowedP = await casbinService.enforce(
+      const allowedP = await casbinService.enforce(TEST_ROLE_2, TEST_POLICY_P);
+      expect(allowedP).toBe(false);
+
+      const allowedP2 = await casbinService.enforce(
         TEST_ROLE_2,
         'hcp',
         'claim',
@@ -206,9 +204,6 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
         'main',
         'edit',
       );
-      expect(allowedP).toBe(false);
-
-      const allowedP2 = await casbinService.enforce(TEST_ROLE_2, TEST_POLICY_P2);
       expect(allowedP2).toBe(false);
 
       const allowedP3 = await casbinService.enforce(
@@ -224,8 +219,10 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
     });
 
     it('should DENY access when Role has a Bundle, but the requested policy is not in that Bundle', async () => {
-      // Requesting an ungranted section permission
-      const allowedP = await casbinService.enforce(
+      const allowedP = await casbinService.enforce(TEST_ROLE, 'non_existent_menu');
+      expect(allowedP).toBe(false);
+
+      const allowedP2 = await casbinService.enforce(
         TEST_ROLE,
         'hcp',
         'claim',
@@ -233,13 +230,8 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
         'unassigned',
         'edit',
       );
-      expect(allowedP).toBe(false);
-
-      // Requesting an ungranted menu key
-      const allowedP2 = await casbinService.enforce(TEST_ROLE, 'non_existent_menu');
       expect(allowedP2).toBe(false);
 
-      // Requesting an ungranted field permission
       const allowedP3 = await casbinService.enforce(
         TEST_ROLE,
         'hcp',
@@ -253,7 +245,14 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
     });
 
     it('should support object options parameter in centralized enforce', async () => {
-      const allowed = await casbinService.enforce({
+      const allowedMenu = await casbinService.enforce({
+        sub: TEST_ROLE,
+        key: TEST_POLICY_P,
+        ptype: 'p',
+      });
+      expect(allowedMenu).toBe(true);
+
+      const allowedSection = await casbinService.enforce({
         sub: TEST_ROLE,
         lob: 'hcp',
         page: 'claim',
@@ -261,14 +260,7 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
         section: 'main',
         access: 'edit',
       });
-      expect(allowed).toBe(true);
-
-      const allowedMenu = await casbinService.enforce({
-        sub: TEST_ROLE,
-        key: TEST_POLICY_P2,
-        ptype: 'p2',
-      });
-      expect(allowedMenu).toBe(true);
+      expect(allowedSection).toBe(true);
 
       const allowedField = await casbinService.enforce({
         sub: TEST_ROLE,
@@ -285,31 +277,30 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
   });
 
   describe('Resource Hierarchy & Cascading Logic', () => {
-    it('should return coherent Section -> Menu -> Field hierarchy from getResourceHierarchy', async () => {
+    it('should return coherent Menu -> Section -> Field hierarchy from getResourceHierarchy', async () => {
       const res = await adminService.getResourceHierarchy();
-      const hierarchy = res.sections;
+      const hierarchy = res.menus;
       expect(Array.isArray(hierarchy)).toBe(true);
       expect(hierarchy.length).toBeGreaterThan(0);
 
-      // Verify each section has appropriate structure
-      const salesSection = hierarchy.find(
-        (s) => s.name.toLowerCase() === 'sales' || s.key.toLowerCase().includes('sales')
+      const salesMenu = hierarchy.find(
+        (m) => m.key.toLowerCase().includes('sales')
       );
-      if (salesSection) {
-        expect(salesSection.policyName).toBeDefined();
-        expect(salesSection.key).toBeDefined();
-        expect(Array.isArray(salesSection.menus)).toBe(true);
-        if (salesSection.menus.length > 0) {
-          const menu = salesSection.menus[0];
-          expect(menu.key).toBeDefined();
-          expect(menu.displayName).toBeDefined();
-          expect(Array.isArray(menu.fields)).toBe(true);
+      if (salesMenu) {
+        expect(salesMenu.policyName).toBeDefined();
+        expect(salesMenu.key).toBeDefined();
+        expect(salesMenu.displayName).toBeDefined();
+        expect(Array.isArray(salesMenu.sections)).toBe(true);
+        if (salesMenu.sections.length > 0) {
+          const section = salesMenu.sections[0];
+          expect(section.key).toBeDefined();
+          expect(section.policyName).toBeDefined();
+          expect(Array.isArray(section.fields)).toBe(true);
         }
       }
     });
 
-    it('should cascade deletion of child menus and fields when a section policy is removed from a bundle', async () => {
-      // 1. Create a bundle for cascade testing
+    it('should cascade deletion of child sections and fields when a menu policy is removed from a bundle', async () => {
       const cascadeBundle = await adminService.createPolicyBundle({
         name: 'Cascade Test Bundle',
         description: 'Testing cascading deletion',
@@ -317,37 +308,32 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
       });
 
       try {
-        // Find a section and its child menu + field from hierarchy
         const res = await adminService.getResourceHierarchy();
-        const hierarchy = res.sections;
-        const sectionWithChildren = hierarchy.find(
-          (s) => s.menus.length > 0 && s.menus.some((m) => m.fields.length > 0)
+        const hierarchy = res.menus;
+        const menuWithChildren = hierarchy.find(
+          (m) => m.sections.length > 0 && m.sections.some((s) => s.fields.length > 0)
         );
 
-        if (sectionWithChildren) {
-          const menu = sectionWithChildren.menus.find((m) => m.fields.length > 0)!;
-          const field = menu.fields[0];
+        if (menuWithChildren) {
+          const section = menuWithChildren.sections.find((s) => s.fields.length > 0)!;
+          const field = section.fields[0];
 
-          // Add section, menu, and field to bundle
-          await adminService.addPolicyToBundle(cascadeBundle.id, sectionWithChildren.policyName, 'p');
-          await adminService.addPolicyToBundle(cascadeBundle.id, menu.key, 'p2');
+          await adminService.addPolicyToBundle(cascadeBundle.id, menuWithChildren.policyName, 'p');
+          await adminService.addPolicyToBundle(cascadeBundle.id, section.policyName, 'p2');
           await adminService.addPolicyToBundle(cascadeBundle.id, field.policyName, 'p3');
 
-          // Verify all 3 are in the bundle
           let bundlePolicies = await adminService.getBundlePolicies(cascadeBundle.id);
           const perms = bundlePolicies.map((p) => p.permission);
-          expect(perms).toContain(sectionWithChildren.policyName);
-          expect(perms).toContain(menu.key);
+          expect(perms).toContain(menuWithChildren.policyName);
+          expect(perms).toContain(section.policyName);
           expect(perms).toContain(field.policyName);
 
-          // Now remove the SECTION policy
-          await adminService.removePolicyFromBundle(cascadeBundle.id, sectionWithChildren.policyName);
+          await adminService.removePolicyFromBundle(cascadeBundle.id, menuWithChildren.policyName);
 
-          // Verify cascade: section, menu, and field should ALL be removed
           bundlePolicies = await adminService.getBundlePolicies(cascadeBundle.id);
           const permsAfter = bundlePolicies.map((p) => p.permission);
-          expect(permsAfter).not.toContain(sectionWithChildren.policyName);
-          expect(permsAfter).not.toContain(menu.key);
+          expect(permsAfter).not.toContain(menuWithChildren.policyName);
+          expect(permsAfter).not.toContain(section.policyName);
           expect(permsAfter).not.toContain(field.policyName);
         }
       } finally {
@@ -363,19 +349,19 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
 
       try {
         const hierarchy = await adminService.getResourceHierarchy();
-        const section = hierarchy.sections.find((s) => s.menus.length > 0 && s.menus[0].fields.length > 0);
-        if (section) {
-          const menu = section.menus[0];
-          const field = menu.fields[0];
+        const menu = hierarchy.menus.find((m) => m.sections.length > 0 && m.sections[0].fields.length > 0);
+        if (menu) {
+          const section = menu.sections[0];
+          const field = section.fields[0];
 
-          // 1. Setting only the field should auto-include parent menu and section
+          // 1. Setting only the field should auto-include parent section and menu
           await adminService.setBundlePolicies(syncBundle.id, [field.policyName]);
 
           let bundlePolicies = await adminService.getBundlePolicies(syncBundle.id);
           let perms = bundlePolicies.map((p) => p.permission);
           expect(perms).toContain(field.policyName);
-          expect(perms).toContain(menu.key);
           expect(perms).toContain(section.policyName);
+          expect(perms).toContain(menu.policyName);
 
           // 2. Updating with empty array should remove everything
           await adminService.setBundlePolicies(syncBundle.id, []);

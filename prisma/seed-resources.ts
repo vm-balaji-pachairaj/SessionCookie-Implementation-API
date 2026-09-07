@@ -5,18 +5,17 @@ import { Client } from 'pg';
 loadEnv({ path: path.join(__dirname, '..', '.env') });
 
 export interface ResourceDefinition {
-  sections: {
+  menus: {
     key: string;
     name: string;
-    policy: string;
-    access: string;
-    menus: {
+    route: string;
+    icon: string;
+    order: number;
+    sections: {
       key: string;
       name: string;
       policy: string;
-      route: string;
-      icon: string;
-      order: number;
+      access: string;
       fields: {
         key: string;
         name: string;
@@ -28,20 +27,19 @@ export interface ResourceDefinition {
 }
 
 export const HIERARCHY_DATA: ResourceDefinition = {
-  sections: [
+  menus: [
     {
       key: 'dashboard',
       name: 'Dashboard',
-      policy: 'sec_dashboard',
-      access: 'read',
-      menus: [
+      route: '/dashboard',
+      icon: 'dashboard',
+      order: 1,
+      sections: [
         {
           key: 'overview',
           name: 'Overview',
-          policy: 'overview',
-          route: '/dashboard',
-          icon: 'dashboard',
-          order: 1,
+          policy: 'sec_dashboard_overview',
+          access: 'read',
           fields: [
             { key: 'welcome_banner', name: 'Welcome Banner', policy: 'field_overview_welcome_banner', access: 'view' },
             { key: 'quick_stats', name: 'Quick Stats', policy: 'field_overview_quick_stats', access: 'view' },
@@ -53,29 +51,25 @@ export const HIERARCHY_DATA: ResourceDefinition = {
     {
       key: 'sales',
       name: 'Sales',
-      policy: 'sec_sales',
-      access: 'read',
-      menus: [
+      route: '/sales',
+      icon: 'chart-bar',
+      order: 2,
+      sections: [
         {
-          key: 'sales_dashboard',
-          name: 'Sales Dashboard',
-          policy: 'sales_dashboard',
-          route: '/sales/dashboard',
-          icon: 'chart-bar',
-          order: 1,
+          key: 'summary',
+          name: 'Sales Summary',
+          policy: 'sec_sales_summary',
+          access: 'read',
           fields: [
-            { key: 'sales_summary', name: 'Sales Summary', policy: 'field_sales_summary', access: 'view' },
-            { key: 'revenue', name: 'Revenue', policy: 'field_revenue', access: 'view' },
-            { key: 'customer_count', name: 'Customer Count', policy: 'field_customer_count', access: 'view' },
+            { key: 'revenue', name: 'Revenue Metric', policy: 'field_sales_revenue', access: 'view' },
+            { key: 'growth_rate', name: 'Growth Rate', policy: 'field_sales_growth', access: 'view' },
           ],
         },
         {
           key: 'orders',
           name: 'Orders',
-          policy: 'orders',
-          route: '/sales/orders',
-          icon: 'shopping-cart',
-          order: 2,
+          policy: 'sec_orders',
+          access: 'read',
           fields: [
             { key: 'order_id', name: 'Order ID', policy: 'field_orders_order_id', access: 'read' },
             { key: 'customer', name: 'Customer', policy: 'field_orders_customer', access: 'read' },
@@ -85,39 +79,17 @@ export const HIERARCHY_DATA: ResourceDefinition = {
             { key: 'actions', name: 'Actions', policy: 'field_orders_actions', access: 'edit' },
           ],
         },
-      ],
-    },
-    {
-      key: 'customers',
-      name: 'Customers',
-      policy: 'sec_customers',
-      access: 'read',
-      menus: [
         {
-          key: 'customer_list',
-          name: 'Customer Directory',
-          policy: 'customer_list',
-          route: '/customers',
-          icon: 'users',
-          order: 1,
+          key: 'customers',
+          name: 'Customers',
+          policy: 'sec_customers',
+          access: 'read',
           fields: [
             { key: 'customer_name', name: 'Customer Name', policy: 'field_customers_name', access: 'read' },
             { key: 'email', name: 'Email', policy: 'field_customers_email', access: 'read' },
             { key: 'phone', name: 'Phone', policy: 'field_customers_phone', access: 'read' },
-            { key: 'status', name: 'Status', policy: 'field_customers_status', access: 'read' },
-            { key: 'actions', name: 'Actions', policy: 'field_customers_actions', access: 'edit' },
-          ],
-        },
-        {
-          key: 'customer_feedback',
-          name: 'Feedback',
-          policy: 'customer_feedback',
-          route: '/customers/feedback',
-          icon: 'chat',
-          order: 2,
-          fields: [
-            { key: 'feedback_text', name: 'Feedback Comments', policy: 'field_feedback_comments', access: 'read' },
-            { key: 'rating', name: 'Rating Score', policy: 'field_feedback_rating', access: 'read' },
+            { key: 'segment', name: 'Segment', policy: 'field_customers_segment', access: 'read' },
+            { key: 'actions', name: 'Customer Actions', policy: 'field_customers_actions', access: 'edit' },
           ],
         },
       ],
@@ -125,47 +97,39 @@ export const HIERARCHY_DATA: ResourceDefinition = {
     {
       key: 'user_management',
       name: 'User Management',
-      policy: 'sec_user_management',
-      access: 'read',
-      menus: [
+      route: '/user-management',
+      icon: 'users',
+      order: 3,
+      sections: [
         {
           key: 'users',
-          name: 'Users',
-          policy: 'users',
-          route: '/user-management',
-          icon: 'user',
-          order: 1,
+          name: 'User Directory',
+          policy: 'sec_user_directory',
+          access: 'read',
           fields: [
-            { key: 'user_name', name: 'Name', policy: 'field_users_name', access: 'read' },
-            { key: 'user_email', name: 'Email', policy: 'field_users_email', access: 'read' },
-            { key: 'user_role', name: 'Role', policy: 'field_users_role', access: 'read' },
-            { key: 'user_status', name: 'Status', policy: 'field_users_status', access: 'read' },
-            { key: 'user_created_date', name: 'Created Date', policy: 'field_users_created_date', access: 'read' },
-            { key: 'user_actions', name: 'Actions', policy: 'field_users_actions', access: 'edit' },
+            { key: 'user_list', name: 'User List', policy: 'field_users_list', access: 'read' },
+            { key: 'add_user', name: 'Add User', policy: 'field_users_add', access: 'edit' },
+            { key: 'user_status', name: 'User Status', policy: 'field_users_status', access: 'read' },
           ],
         },
         {
           key: 'roles',
-          name: 'Roles',
-          policy: 'roles',
-          route: '/admin',
-          icon: 'shield',
-          order: 2,
+          name: 'Role Management',
+          policy: 'sec_roles',
+          access: 'read',
           fields: [
-            { key: 'role_name', name: 'Role Name', policy: 'field_roles_role_name', access: 'read' },
-            { key: 'bundle_count', name: 'Bundle Count', policy: 'field_roles_bundle_count', access: 'read' },
+            { key: 'role_list', name: 'Role List', policy: 'field_roles_list', access: 'read' },
+            { key: 'assign_bundles', name: 'Assign Policy Bundles', policy: 'field_roles_assign_bundles', access: 'edit' },
           ],
         },
         {
           key: 'permissions',
-          name: 'Permissions',
-          policy: 'permissions',
-          route: '/admin',
-          icon: 'key',
-          order: 3,
+          name: 'Permissions Matrix',
+          policy: 'sec_permissions',
+          access: 'read',
           fields: [
-            { key: 'permission_rule', name: 'Rule Identifier', policy: 'field_permissions_rule', access: 'read' },
-            { key: 'permission_type', name: 'Policy Type', policy: 'field_permissions_type', access: 'read' },
+            { key: 'matrix_view', name: 'Matrix View', policy: 'field_permissions_matrix_view', access: 'view' },
+            { key: 'export_matrix', name: 'Export Matrix', policy: 'field_permissions_export', access: 'export' },
           ],
         },
       ],
@@ -173,44 +137,38 @@ export const HIERARCHY_DATA: ResourceDefinition = {
     {
       key: 'reports',
       name: 'Reports',
-      policy: 'sec_reports',
-      access: 'read',
-      menus: [
+      route: '/reports',
+      icon: 'file-text',
+      order: 4,
+      sections: [
         {
           key: 'sales_report',
           name: 'Sales Report',
-          policy: 'sales_report',
-          route: '/reports/sales',
-          icon: 'document-report',
-          order: 1,
+          policy: 'sec_rep_sales',
+          access: 'read',
           fields: [
-            { key: 'report_metric', name: 'Key Metrics', policy: 'field_report_metric', access: 'view' },
-            { key: 'report_chart', name: 'Chart Visual', policy: 'field_report_chart', access: 'view' },
-            { key: 'report_export', name: 'Export Data', policy: 'field_report_export', access: 'export' },
+            { key: 'monthly_trends', name: 'Monthly Trends', policy: 'field_reports_monthly_trends', access: 'view' },
+            { key: 'export_pdf', name: 'Export PDF', policy: 'field_reports_export_pdf', access: 'export' },
           ],
         },
         {
           key: 'user_activity',
-          name: 'User Activity',
-          policy: 'user_activity',
-          route: '/reports/activity',
-          icon: 'clock',
-          order: 2,
+          name: 'User Activity Report',
+          policy: 'sec_rep_user_activity',
+          access: 'read',
           fields: [
-            { key: 'activity_log', name: 'Activity Log', policy: 'field_activity_log', access: 'view' },
-            { key: 'session_duration', name: 'Session Duration', policy: 'field_session_duration', access: 'view' },
+            { key: 'login_history', name: 'Login History', policy: 'field_reports_login_history', access: 'view' },
+            { key: 'failed_attempts', name: 'Failed Attempts', policy: 'field_reports_failed_attempts', access: 'view' },
           ],
         },
         {
-          key: 'audit_report',
-          name: 'Audit Report',
-          policy: 'audit_report',
-          route: '/reports/audit',
-          icon: 'clipboard-check',
-          order: 3,
+          key: 'audit_trail',
+          name: 'Audit Trail',
+          policy: 'sec_rep_audit_trail',
+          access: 'read',
           fields: [
-            { key: 'audit_timestamp', name: 'Timestamp', policy: 'field_audit_timestamp', access: 'view' },
-            { key: 'audit_action', name: 'Action', policy: 'field_audit_action', access: 'view' },
+            { key: 'system_events', name: 'System Events', policy: 'field_reports_system_events', access: 'read' },
+            { key: 'critical_alerts', name: 'Critical Alerts', policy: 'field_reports_critical_alerts', access: 'read' },
           ],
         },
       ],
@@ -218,42 +176,48 @@ export const HIERARCHY_DATA: ResourceDefinition = {
     {
       key: 'settings',
       name: 'Settings',
-      policy: 'sec_settings',
-      access: 'read',
-      menus: [
+      route: '/settings',
+      icon: 'settings',
+      order: 5,
+      sections: [
         {
-          key: 'general_settings',
+          key: 'general',
           name: 'General Settings',
-          policy: 'general_settings',
-          route: '/settings/general',
-          icon: 'cog',
-          order: 1,
+          policy: 'sec_settings_general',
+          access: 'read',
           fields: [
-            { key: 'site_name', name: 'Site Name', policy: 'field_settings_site_name', access: 'read' },
-            { key: 'timezone', name: 'Timezone', policy: 'field_settings_timezone', access: 'read' },
-          ],
-        },
-        {
-          key: 'access_control',
-          name: 'Access Control',
-          policy: 'access_control',
-          route: '/admin',
-          icon: 'lock-closed',
-          order: 2,
-          fields: [
-            { key: 'session_timeout', name: 'Session Timeout', policy: 'field_settings_session_timeout', access: 'read' },
-            { key: 'mfa_enforced', name: 'MFA Enforced', policy: 'field_settings_mfa_enforced', access: 'read' },
+            { key: 'site_name', name: 'Site Name', policy: 'field_settings_site_name', access: 'edit' },
+            { key: 'timezone', name: 'Timezone', policy: 'field_settings_timezone', access: 'edit' },
           ],
         },
         {
           key: 'notifications',
-          name: 'Notifications',
-          policy: 'notifications',
-          route: '/settings/notifications',
-          icon: 'bell',
-          order: 3,
+          name: 'Notification Settings',
+          policy: 'sec_settings_notifications',
+          access: 'read',
           fields: [
             { key: 'email_alerts', name: 'Email Alerts', policy: 'field_settings_email_alerts', access: 'read' },
+          ],
+        },
+      ],
+    },
+    {
+      key: 'audit',
+      name: 'Audit',
+      route: '/audit',
+      icon: 'clipboard-check',
+      order: 6,
+      sections: [
+        {
+          key: 'audit_logs',
+          name: 'Audit Logs',
+          policy: 'sec_audit_logs',
+          access: 'read',
+          fields: [
+            { key: 'log_id', name: 'Log ID', policy: 'field_audit_log_id', access: 'read' },
+            { key: 'user', name: 'User', policy: 'field_audit_user', access: 'read' },
+            { key: 'action', name: 'Action', policy: 'field_audit_action_desc', access: 'read' },
+            { key: 'timestamp', name: 'Timestamp', policy: 'field_audit_time', access: 'read' },
           ],
         },
       ],
@@ -271,7 +235,7 @@ export async function seedResources(): Promise<void> {
   await client.connect();
 
   try {
-    console.log('--- Starting Resource & Casbin Policy Seeding ---');
+    console.log('--- Starting Resource & Casbin Policy Seeding (MENU -> SECTION -> FIELD) ---');
 
     // 1. Ensure schemas and tables exist
     await client.query(`CREATE SCHEMA IF NOT EXISTS casbin;`);
@@ -321,120 +285,148 @@ export async function seedResources(): Promise<void> {
 
     console.log('Cleaned existing Casbin tables for fresh coherent seed.');
 
-    // 2. Insert P (Sections), P2 (Menus), P3 (Fields)
-    for (const section of HIERARCHY_DATA.sections) {
-      // P policy: perm, lob, page, mod, sec, access
-      await client.query(`
+    // 2. Insert P (Menu), P2 (Section), P3 (Field)
+    for (const menu of HIERARCHY_DATA.menus) {
+      // Level 1: MENU -> P policy (key, lob, page, meta)
+      const meta = `displayName:${menu.name}|route:${menu.route}|icon:${menu.icon}|order:${menu.order}`;
+      await client.query(
+        `
         INSERT INTO casbin.casbin_rule (ptype, v0, v1, v2, v3, v4, v5, v6)
-        VALUES ('p', $1, 'hcp', $2, 'main', $2, $3, null)
+        VALUES ('p', $1, 'hcp', $2, $3, null, null, null)
         ON CONFLICT DO NOTHING;
-      `, [section.policy, section.key, section.access]);
+      `,
+        [menu.key, menu.key, meta],
+      );
 
-      for (const menu of section.menus) {
-        // P2 policy: key, lob, parent, meta
-        const meta = `displayName:${menu.name}|route:${menu.route}|icon:${menu.icon}|order:${menu.order}`;
-        await client.query(`
+      for (const section of menu.sections) {
+        // Level 2: SECTION -> P2 policy (perm, lob, page, mod, sec, access)
+        await client.query(
+          `
           INSERT INTO casbin.casbin_rule (ptype, v0, v1, v2, v3, v4, v5, v6)
-          VALUES ('p2', $1, 'hcp', $2, $3, null, null, null)
+          VALUES ('p2', $1, 'hcp', $2, $3, $4, $5, null)
           ON CONFLICT DO NOTHING;
-        `, [menu.policy, section.key, meta]);
+        `,
+          [section.policy, menu.key, section.key, section.key, section.access],
+        );
 
-        for (const field of menu.fields) {
-          // P3 policy: perm, lob, page, mod, sec, field, access
-          await client.query(`
+        for (const field of section.fields) {
+          // Level 3: FIELD -> P3 policy (perm, lob, page, mod, sec, field, access)
+          await client.query(
+            `
             INSERT INTO casbin.casbin_rule (ptype, v0, v1, v2, v3, v4, v5, v6)
-            VALUES ('p3', $1, 'hcp', $2, $3, $3, $4, $5)
+            VALUES ('p3', $1, 'hcp', $2, $3, $4, $5, $6)
             ON CONFLICT DO NOTHING;
-          `, [field.policy, section.key, menu.key, field.key, field.access]);
+          `,
+            [
+              field.policy,
+              menu.key,
+              section.key,
+              section.key,
+              field.key,
+              field.access,
+            ],
+          );
         }
       }
     }
 
-    console.log('Inserted all P (Sections), P2 (Menus), and P3 (Fields) policies.');
+    console.log('Inserted all P (Menus), P2 (Sections), and P3 (Fields) policies.');
 
     // 3. Create Real Bundles
     const bundlesToCreate = [
       {
         name: 'Full Administrator Bundle',
-        description: 'Complete system access across all Sections, Menus, and Fields.',
-        sections: ['dashboard', 'sales', 'customers', 'user_management', 'reports', 'settings'],
+        description: 'Complete system access across all Menus, Sections, and Fields.',
+        menus: ['dashboard', 'user_management', 'sales', 'reports', 'settings', 'audit'],
+        restrictedSections: [] as string[],
         restrictedFields: [] as string[],
       },
       {
         name: 'Sales Manager Bundle',
-        description: 'Comprehensive access to Dashboard, Sales, Customers, and Reports.',
-        sections: ['dashboard', 'sales', 'customers', 'reports'],
+        description: 'Comprehensive access to Dashboard, Sales, and Reports.',
+        menus: ['dashboard', 'sales', 'reports'],
+        restrictedSections: [] as string[],
         restrictedFields: [] as string[],
       },
       {
         name: 'Sales Agent Bundle',
-        description: 'Operational sales access (Orders and Customer directory without Amount access).',
-        sections: ['dashboard', 'sales'],
-        // Restrict Amount and Actions in Orders
-        restrictedFields: ['field_orders_amount', 'field_orders_actions'],
+        description: 'Operational sales access (Orders and Customers without Amount or Action edit).',
+        menus: ['dashboard', 'sales'],
+        restrictedSections: ['summary'],
+        restrictedFields: ['field_orders_amount', 'field_orders_actions', 'field_customers_actions'],
       },
       {
         name: 'User Access Support Bundle',
-        description: 'Access to User Management directory and Roles.',
-        sections: ['dashboard', 'user_management'],
+        description: 'Access to Dashboard and User Management (Users, Roles, Permissions).',
+        menus: ['dashboard', 'user_management'],
+        restrictedSections: [] as string[],
         restrictedFields: [] as string[],
       },
       {
         name: 'Auditor Bundle',
-        description: 'Read-only access to Overview and Audit Reports.',
-        sections: ['dashboard', 'reports'],
-        restrictedMenus: ['sales_report', 'user_activity'],
+        description: 'Read-only access to Overview, Audit Reports, and Audit Logs.',
+        menus: ['dashboard', 'reports', 'audit'],
+        restrictedSections: ['sales_report', 'user_activity'],
         restrictedFields: [] as string[],
       },
     ];
 
     for (const bDef of bundlesToCreate) {
-      const bRes = await client.query(`
+      const bRes = await client.query(
+        `
         INSERT INTO casbin.policy_bundle (name, description, created_at, updated_at)
         VALUES ($1, $2, NOW(), NOW())
         RETURNING id;
-      `, [bDef.name, bDef.description]);
+      `,
+        [bDef.name, bDef.description],
+      );
       const bundleId = bRes.rows[0].id;
 
       const policiesToAttach: { name: string; ptype: string }[] = [];
 
-      for (const sectionKey of bDef.sections) {
-        const sec = HIERARCHY_DATA.sections.find((s) => s.key === sectionKey);
-        if (!sec) continue;
+      for (const menuKey of bDef.menus) {
+        const menu = HIERARCHY_DATA.menus.find((m) => m.key === menuKey);
+        if (!menu) continue;
 
-        // Add section policy (P)
-        policiesToAttach.push({ name: sec.policy, ptype: 'p' });
+        // Add Menu policy (P)
+        policiesToAttach.push({ name: menu.key, ptype: 'p' });
 
-        for (const menu of sec.menus) {
-          if ('restrictedMenus' in bDef && (bDef as any).restrictedMenus?.includes(menu.key)) {
+        for (const section of menu.sections) {
+          if (bDef.restrictedSections.includes(section.key)) {
             continue;
           }
-          // Add menu policy (P2)
-          policiesToAttach.push({ name: menu.policy, ptype: 'p2' });
+          // Add Section policy (P2)
+          policiesToAttach.push({ name: section.policy, ptype: 'p2' });
 
-          for (const field of menu.fields) {
+          for (const field of section.fields) {
             if (bDef.restrictedFields.includes(field.policy)) {
               continue;
             }
-            // Add field policy (P3)
+            // Add Field policy (P3)
             policiesToAttach.push({ name: field.policy, ptype: 'p3' });
           }
         }
       }
 
       for (const item of policiesToAttach) {
-        await client.query(`
+        await client.query(
+          `
           INSERT INTO casbin.policy_bundle_policy (bundle_id, policy_name, ptype, created_at)
           VALUES ($1, $2, $3, NOW())
           ON CONFLICT DO NOTHING;
-        `, [bundleId, item.name, item.ptype]);
+        `,
+          [bundleId, item.name, item.ptype],
+        );
 
         // Add (g, bundle_name, policy_name)
-        await client.query(`
+        await client.query(
+          `
           INSERT INTO casbin.casbin_rule (ptype, v0, v1)
           VALUES ('g', $1, $2)
           ON CONFLICT DO NOTHING;
-        `, [bDef.name, item.name]);
+        `,
+          [bDef.name, item.name],
+        );
       }
 
       console.log(`Created bundle "${bDef.name}" with ${policiesToAttach.length} policies.`);
@@ -442,38 +434,47 @@ export async function seedResources(): Promise<void> {
 
     // 4. Create Roles and Assign Bundles (g3)
     const roleAssignments = [
-      { role: 'System Admin', bundle: 'Full Administrator Bundle', landing: 'overview' },
-      { role: 'Sales Manager', bundle: 'Sales Manager Bundle', landing: 'sales_dashboard' },
-      { role: 'Sales Agent', bundle: 'Sales Agent Bundle', landing: 'orders' },
-      { role: 'User Access Support Initiator', bundle: 'User Access Support Bundle', landing: 'users' },
-      { role: 'Auditor', bundle: 'Auditor Bundle', landing: 'overview' },
+      { role: 'System Admin', bundle: 'Full Administrator Bundle', landing: 'dashboard' },
+      { role: 'Sales Manager', bundle: 'Sales Manager Bundle', landing: 'sales' },
+      { role: 'Sales Agent', bundle: 'Sales Agent Bundle', landing: 'sales' },
+      { role: 'User Access Support Initiator', bundle: 'User Access Support Bundle', landing: 'user_management' },
+      { role: 'Auditor', bundle: 'Auditor Bundle', landing: 'reports' },
     ];
 
     for (const ra of roleAssignments) {
       // Ensure role exists in users.role_master if table exists
       try {
-        await client.query(`
+        await client.query(
+          `
           INSERT INTO users.role_master (role_name, is_active)
           VALUES ($1, true)
           ON CONFLICT (role_name) DO NOTHING;
-        `, [ra.role]);
+        `,
+          [ra.role],
+        );
       } catch {
         // Ignore if role_master table structure differs
       }
 
       // Assign bundle to role (g3)
-      await client.query(`
+      await client.query(
+        `
         INSERT INTO casbin.casbin_rule (ptype, v0, v1)
         VALUES ('g3', $1, $2)
         ON CONFLICT DO NOTHING;
-      `, [ra.role, ra.bundle]);
+      `,
+        [ra.role, ra.bundle],
+      );
 
       // Assign landing page (g2)
-      await client.query(`
+      await client.query(
+        `
         INSERT INTO casbin.casbin_rule (ptype, v0, v1, v2)
         VALUES ('g2', $1, 'hcp', $2)
         ON CONFLICT DO NOTHING;
-      `, [ra.role, ra.landing]);
+      `,
+        [ra.role, ra.landing],
+      );
 
       console.log(`Linked role "${ra.role}" -> Bundle "${ra.bundle}" (g3) & Landing "${ra.landing}" (g2).`);
     }
@@ -496,4 +497,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-

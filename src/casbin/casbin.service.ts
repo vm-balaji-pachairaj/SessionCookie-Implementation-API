@@ -153,8 +153,8 @@ export class CasbinService implements OnModuleInit {
   // ==========================================================================
   // Centralized Enforcement Entry Point
   // Handles:
-  // - Section-level policies (P)
-  // - Menu-level policies (P2)
+  // - Menu-level policies (P)
+  // - Section-level policies (P2)
   // - Field-level policies (P3)
   // - Parameter objects (EnforceOptions)
   // ==========================================================================
@@ -193,7 +193,7 @@ export class CasbinService implements OnModuleInit {
 
     const sub = arg1;
 
-    // 2 string arguments: (sub, menuKey) -> P2 Menu enforcement
+    // 2 string arguments: (sub, menuKey) -> P Menu enforcement
     if (arg2 !== undefined && arg3 === undefined) {
       return this.enforceMenu(sub, arg2);
     }
@@ -211,9 +211,16 @@ export class CasbinService implements OnModuleInit {
       );
     }
 
-    // 6 string arguments: (sub, lob, page, mod, sec, access) -> P Section enforcement
+    // 6 string arguments: (sub, lob, page, mod, sec, access) -> P2 Section enforcement
     if (arg6 !== undefined) {
-      return this.enforcer.enforce(sub, arg2!, arg3!, arg4!, arg5!, arg6);
+      return this.enforceSectionInternal(
+        sub,
+        arg2!,
+        arg3!,
+        arg4!,
+        arg5!,
+        arg6,
+      );
     }
 
     return false;
@@ -222,7 +229,7 @@ export class CasbinService implements OnModuleInit {
   private async enforceWithOptions(options: EnforceOptions): Promise<boolean> {
     const { sub, lob = '', page = '', module = '', section = '', field, access = '', key, ptype } = options;
 
-    if (ptype === 'p2' || (key && !page && !module)) {
+    if (ptype === 'p' || (key && !page && !module && !section && !field)) {
       return this.enforceMenu(sub, key ?? '');
     }
 
@@ -230,7 +237,8 @@ export class CasbinService implements OnModuleInit {
       return this.enforceFieldInternal(sub, lob, page, module, section, field ?? '', access);
     }
 
-    return this.enforcer.enforce(sub, lob, page, module, section, access);
+    // P2: Section enforcement
+    return this.enforceSectionInternal(sub, lob, page, module, section, access);
   }
 
   private async enforceMenu(role: string, key: string): Promise<boolean> {
@@ -239,6 +247,35 @@ export class CasbinService implements OnModuleInit {
       return false;
     }
     return this.g3_has_policy(role, key);
+  }
+
+  private async enforceSectionInternal(
+    sub: string,
+    lob: string,
+    page: string,
+    mod: string,
+    sec: string,
+    access: string,
+  ): Promise<boolean> {
+    const matcher = this.enforcer
+      .getModel()
+      .model.get('m')
+      ?.get('m2')?.value;
+
+    if (!matcher) {
+      throw new Error('m2 matcher not found in the Casbin model');
+    }
+
+    return this.enforcer.enforceWithMatcher(
+      matcher,
+      new EnforceContext('r2', 'p2', 'e', 'm2'),
+      sub,
+      lob,
+      page,
+      mod,
+      sec,
+      access,
+    );
   }
 
   private async enforceFieldInternal(
@@ -359,7 +396,7 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Get section-level permissions (P) for a role, resolved through its assigned Policy Bundles.
+   * Get section-level permissions (P2) for a role, resolved through its assigned Policy Bundles.
    */
   async getPermissionsForRole(roleName: string) {
     const bundles = await this.getBundlesForRole(roleName);
@@ -381,7 +418,7 @@ export class CasbinService implements OnModuleInit {
         if (seenPolicies.has(policyName)) continue;
         seenPolicies.add(policyName);
 
-        const policies = await this.enforcer.getFilteredPolicy(0, policyName);
+        const policies = await this.enforcer.getFilteredNamedPolicy('p2', 0, policyName);
         for (const policy of policies) {
           permissions.push({
             permission: policy[0],
@@ -437,34 +474,39 @@ export class CasbinService implements OnModuleInit {
   }
 
   /**
-   * Look up P2 menu definition for a menu key.
+   * Look up P menu definition for a menu key.
    */
   async getMenuInfo(key: string): Promise<MenuInfo | null> {
-    const [p2Policy] = await this.enforcer.getFilteredNamedPolicy('p2', 0, key);
-    if (!p2Policy) {
+    const [pPolicy] = await this.enforcer.getFilteredPolicy(0, key);
+    if (!pPolicy) {
       return null;
     }
 
-    const [menuKey, lob, parent, meta] = p2Policy;
+    const [menuKey, lob, page, meta] = pPolicy;
     return {
       key: menuKey,
       lob,
-      parent,
+      parent: page,
       ...parseP2Metadata(meta),
     };
   }
 
   /**
-   * Get all P2 menu definitions.
+   * Get all P menu definitions.
    */
-  async getAllP2Menus(): Promise<MenuInfo[]> {
-    const p2Policies = await this.enforcer.getNamedPolicy('p2');
-    return p2Policies.map(([key, lob, parent, meta]) => ({
+  async getAllPMenus(): Promise<MenuInfo[]> {
+    const pPolicies = await this.enforcer.getPolicy();
+    return pPolicies.map(([key, lob, page, meta]) => ({
       key,
       lob,
-      parent,
+      parent: page,
       ...parseP2Metadata(meta),
     }));
+  }
+
+  /** Backward compatibility alias */
+  async getAllP2Menus(): Promise<MenuInfo[]> {
+    return this.getAllPMenus();
   }
 
   /**
@@ -482,23 +524,15 @@ export class CasbinService implements OnModuleInit {
         if (seenMenuKeys.has(target)) continue;
         seenMenuKeys.add(target);
 
-        // Check if target is a P policy
-        const permissionPolicies = await this.enforcer.getFilteredPolicy(
-          0,
-          target,
-        );
-
-        // If not a P policy, resolve as P2 menu definition
-        if (permissionPolicies.length === 0) {
-          const menuInfo = await this.getMenuInfo(target);
-          if (menuInfo) {
-            menus.push(menuInfo);
-          }
+        // Resolve as P menu definition
+        const menuInfo = await this.getMenuInfo(target);
+        if (menuInfo) {
+          menus.push(menuInfo);
         }
       }
     }
 
     const uniqueMenus = new Map(menus.map((menu) => [menu.key, menu]));
-    return [...uniqueMenus.values()];
+    return [...uniqueMenus.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }
 }

@@ -57,7 +57,7 @@ export class ResourcesController {
   // --------------------------------------------------------------------------
 
   @Get('sales/overview')
-  @usePolicyNeeded({ section: 'sales', access: 'read' })
+  @usePolicyNeeded({ menu: 'sales', section: 'summary', access: 'read' })
   getSalesOverview(@Req() request: Request & { user?: TokenPayload }) {
     return {
       message: 'Sales overview retrieved successfully',
@@ -71,7 +71,7 @@ export class ResourcesController {
   }
 
   @Get('sales/orders')
-  @usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'read' })
+  @usePolicyNeeded({ menu: 'sales', section: 'orders', access: 'read' })
   async getOrders(@Req() request: Request & { user?: TokenPayload }) {
     const roleName = request.user?.userDetails?.role_name || '';
 
@@ -105,7 +105,7 @@ export class ResourcesController {
   }
 
   @Post('sales/orders')
-  @usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'create' })
+  @usePolicyNeeded({ menu: 'sales', section: 'orders', field: 'actions', access: 'edit' })
   createOrder(
     @Body() body: { customer: string; amount: number; status?: string },
   ) {
@@ -125,7 +125,7 @@ export class ResourcesController {
   }
 
   @Put('sales/orders/:id')
-  @usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'update' })
+  @usePolicyNeeded({ menu: 'sales', section: 'orders', field: 'actions', access: 'edit' })
   updateOrder(
     @Param('id') id: string,
     @Body() body: Partial<OrderItem>,
@@ -142,7 +142,7 @@ export class ResourcesController {
   }
 
   @Delete('sales/orders/:id')
-  @usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'delete' })
+  @usePolicyNeeded({ menu: 'sales', section: 'orders', field: 'actions', access: 'edit' })
   deleteOrder(@Param('id') id: string) {
     const index = MOCK_ORDERS.findIndex((o) => o.id === id);
     if (index === -1) {
@@ -160,7 +160,7 @@ export class ResourcesController {
   // --------------------------------------------------------------------------
 
   @Get('customers')
-  @usePolicyNeeded({ section: 'customers', menu: 'customer_list', access: 'read' })
+  @usePolicyNeeded({ menu: 'sales', section: 'customers', access: 'read' })
   getCustomers(@Req() request: Request & { user?: TokenPayload }) {
     return {
       message: 'Customer directory retrieved successfully',
@@ -169,7 +169,7 @@ export class ResourcesController {
   }
 
   @Post('customers')
-  @usePolicyNeeded({ section: 'customers', menu: 'customer_list', access: 'create' })
+  @usePolicyNeeded({ menu: 'sales', section: 'customers', field: 'actions', access: 'edit' })
   createCustomer(@Body() body: Partial<CustomerItem>) {
     const newCustomer: CustomerItem = {
       id: String(MOCK_CUSTOMERS.length + 1),
@@ -190,7 +190,7 @@ export class ResourcesController {
   // --------------------------------------------------------------------------
 
   @Get('reports/sales')
-  @usePolicyNeeded({ section: 'reports', menu: 'sales_report', access: 'read' })
+  @usePolicyNeeded({ menu: 'reports', section: 'sales_report', access: 'read' })
   getSalesReport() {
     return {
       message: 'Sales report generated successfully',
@@ -206,7 +206,7 @@ export class ResourcesController {
   }
 
   @Get('reports/audit')
-  @usePolicyNeeded({ section: 'reports', menu: 'audit_report', access: 'read' })
+  @usePolicyNeeded({ menu: 'reports', section: 'audit_report', access: 'read' })
   getAuditReport() {
     return {
       message: 'Audit report retrieved successfully',
@@ -218,4 +218,3 @@ export class ResourcesController {
     };
   }
 }
-

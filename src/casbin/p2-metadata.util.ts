@@ -1,16 +1,18 @@
-export interface P2Meta {
+export interface PMeta {
   displayName: string;
   route: string;
   icon: string;
   order: number;
 }
 
+export type P2Meta = PMeta;
+
 /**
- * Parses a P2 metadata string of the form
+ * Parses a P (Menu) metadata string of the form
  * "displayName:X|route:Y|icon:Z|order:N" into a plain object.
  * Shared by CasbinService (menu resolution) and AdminService (policy listing).
  */
-export function parseP2Metadata(meta: string | null): P2Meta {
+export function parsePMetadata(meta: string | null): PMeta {
   const parsed: Record<string, string> = {};
 
   for (const part of (meta ?? '').split('|')) {
@@ -31,3 +33,6 @@ export function parseP2Metadata(meta: string | null): P2Meta {
     order: Number(parsed.order ?? 0) || 0,
   };
 }
+
+/** Backward compatibility alias */
+export const parseP2Metadata = parsePMetadata;

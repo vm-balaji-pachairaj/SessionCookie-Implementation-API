@@ -23,6 +23,20 @@ export interface HierarchyField {
   policy: string;
   policyName: string;
   access: string;
+  sectionKey?: string;
+  menuKey?: string;
+}
+
+export interface HierarchySection {
+  key: string;
+  name: string;
+  displayName: string;
+  policy: string;
+  policyName: string;
+  access: string;
+  page?: string;
+  menuKey?: string;
+  fields: HierarchyField[];
 }
 
 export interface HierarchyMenu {
@@ -34,20 +48,16 @@ export interface HierarchyMenu {
   route: string;
   icon: string;
   order: number;
-  fields: HierarchyField[];
-}
-
-export interface HierarchySection {
-  key: string;
-  name: string;
-  policy: string;
-  policyName: string;
-  access: string;
-  menus: HierarchyMenu[];
+  sections: HierarchySection[];
+  // Backward compatibility aliases during rollout
+  menus?: HierarchySection[];
+  fields?: HierarchyField[];
 }
 
 export interface ResourceHierarchy {
-  sections: HierarchySection[];
+  menus: HierarchyMenu[];
+  // Backward compatibility alias during rollout
+  sections?: HierarchyMenu[];
 }
 
 export interface PolicyBundleSummary {
@@ -56,8 +66,8 @@ export interface PolicyBundleSummary {
   description: string | null;
   policyCount: number;
   roleCount: number;
-  sectionCount: number;
   menuCount: number;
+  sectionCount: number;
   fieldCount: number;
   status: string;
   assignedRoles?: string[];
@@ -67,6 +77,7 @@ export interface PolicyBundleSummary {
 
 export interface PolicyDefinition {
   ptype: PolicyType;
+  key?: string | null;
   lob?: string | null;
   page?: string | null;
   module?: string | null;
@@ -293,8 +304,8 @@ export class AdminService {
       description: b.description,
       policyCount: b._count.policies,
       roleCount: rolesByBundle.get(b.name)?.size ?? 0,
-      sectionCount: bundleBreakdown.get(b.id)?.p ?? 0,
-      menuCount: bundleBreakdown.get(b.id)?.p2 ?? 0,
+      menuCount: bundleBreakdown.get(b.id)?.p ?? 0,
+      sectionCount: bundleBreakdown.get(b.id)?.p2 ?? 0,
       fieldCount: bundleBreakdown.get(b.id)?.p3 ?? 0,
       status: 'Active',
       assignedRoles: Array.from(rolesByBundle.get(b.name) ?? []).sort(),
@@ -339,8 +350,8 @@ export class AdminService {
 
     return {
       ...bundle,
-      sectionCount: breakdown.p,
-      menuCount: breakdown.p2,
+      menuCount: breakdown.p,
+      sectionCount: breakdown.p2,
       fieldCount: breakdown.p3,
       status: 'Active',
       assignedRoles,
@@ -602,18 +613,48 @@ export class AdminService {
     }
 
     // Enforce parent-child consistency: auto-include parents if missing
+    // Level 3: Field (P3) -> auto-include parent Section (P2) and parent Menu (P)
+    // Level 2: Section (P2) -> auto-include parent Menu (P)
     if (resolvedPtype === 'p3') {
       const p3Rule = await this.prisma.casbin_rule.findFirst({
         where: { ptype: 'p3', v0: policyName },
       });
       if (p3Rule) {
-        const parentMenu = p3Rule.v3 || p3Rule.v4;
-        if (parentMenu) {
+        // Find parent Section (P2): match page (v2) and section (v4/v3/v0)
+        const parentSecRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p2',
+            v2: p3Rule.v2,
+            OR: [
+              { v4: p3Rule.v4 },
+              { v3: p3Rule.v3 },
+              { v0: p3Rule.v4 },
+              { v0: p3Rule.v3 },
+            ],
+          },
+        });
+        if (parentSecRule?.v0) {
+          const secMapped = await this.prisma.policy_bundle_policy.findFirst({
+            where: { bundle_id: bundleId, policy_name: parentSecRule.v0 },
+          });
+          if (!secMapped) {
+            await this.addPolicyToBundle(bundleId, parentSecRule.v0, 'p2');
+          }
+        }
+
+        // Find parent Menu (P): match page/key
+        const parentMenuRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p',
+            OR: [{ v0: p3Rule.v2 }, { v2: p3Rule.v2 }],
+          },
+        });
+        if (parentMenuRule?.v0) {
           const menuMapped = await this.prisma.policy_bundle_policy.findFirst({
-            where: { bundle_id: bundleId, policy_name: parentMenu },
+            where: { bundle_id: bundleId, policy_name: parentMenuRule.v0 },
           });
           if (!menuMapped) {
-            await this.addPolicyToBundle(bundleId, parentMenu, 'p2');
+            await this.addPolicyToBundle(bundleId, parentMenuRule.v0, 'p');
           }
         }
       }
@@ -622,16 +663,18 @@ export class AdminService {
         where: { ptype: 'p2', v0: policyName },
       });
       if (p2Rule && p2Rule.v2) {
-        const parentSecKey = p2Rule.v2;
-        const secRule = await this.prisma.casbin_rule.findFirst({
-          where: { ptype: 'p', OR: [{ v4: parentSecKey }, { v2: parentSecKey }] },
+        const parentMenuRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p',
+            OR: [{ v0: p2Rule.v2 }, { v2: p2Rule.v2 }],
+          },
         });
-        if (secRule && secRule.v0) {
-          const secMapped = await this.prisma.policy_bundle_policy.findFirst({
-            where: { bundle_id: bundleId, policy_name: secRule.v0 },
+        if (parentMenuRule?.v0) {
+          const menuMapped = await this.prisma.policy_bundle_policy.findFirst({
+            where: { bundle_id: bundleId, policy_name: parentMenuRule.v0 },
           });
-          if (!secMapped) {
-            await this.addPolicyToBundle(bundleId, secRule.v0, 'p');
+          if (!menuMapped) {
+            await this.addPolicyToBundle(bundleId, parentMenuRule.v0, 'p');
           }
         }
       }
@@ -688,8 +731,8 @@ export class AdminService {
 
   /**
    * Remove a policy from a Policy Bundle with CASCADING REMOVAL.
-   * If a Section is removed, all its child Menus and child Fields are removed.
-   * If a Menu is removed, all its child Fields are removed.
+   * If a Menu (P) is removed, all its child Sections (P2) and child Fields (P3) are removed.
+   * If a Section (P2) is removed, all its child Fields (P3) are removed.
    */
   async removePolicyFromBundle(bundleId: number, policyName: string) {
     const bundle = await this.prisma.policy_bundle.findUnique({
@@ -709,42 +752,56 @@ export class AdminService {
     });
 
     if (rule?.ptype === 'p') {
-      const secKey = rule.v4 || rule.v2 || '';
-      // Find all child menus whose parent is this section key
-      const childMenus = await this.prisma.casbin_rule.findMany({
-        where: { ptype: 'p2', v2: secKey },
+      const pageKey = rule.v2 || rule.v0 || '';
+      const menuKey = rule.v0 || '';
+
+      // Find all child Sections (P2) under this Menu
+      const childSections = await this.prisma.casbin_rule.findMany({
+        where: {
+          ptype: 'p2',
+          OR: [{ v2: pageKey }, { v2: menuKey }],
+        },
         select: { v0: true },
       });
-      const menuKeys = childMenus.map((m) => m.v0!).filter(Boolean);
-      for (const mk of menuKeys) policiesToRemove.add(mk);
+      for (const s of childSections) {
+        if (s.v0) policiesToRemove.add(s.v0);
+      }
 
-      // Find all child fields under this section or its menus
+      // Find all child Fields (P3) under this Menu
       const childFields = await this.prisma.casbin_rule.findMany({
         where: {
           ptype: 'p3',
-          OR: [
-            { v2: secKey },
-            { v3: { in: menuKeys } },
-            { v4: { in: menuKeys } },
+          OR: [{ v2: pageKey }, { v2: menuKey }],
+        },
+        select: { v0: true },
+      });
+      for (const f of childFields) {
+        if (f.v0) policiesToRemove.add(f.v0);
+      }
+    } else if (rule?.ptype === 'p2') {
+      const pageKey = rule.v2 || '';
+      const secKey = rule.v4 || rule.v3 || rule.v0 || '';
+
+      // Find all child Fields (P3) under this Section
+      const childFields = await this.prisma.casbin_rule.findMany({
+        where: {
+          ptype: 'p3',
+          AND: [
+            ...(pageKey ? [{ v2: pageKey }] : []),
+            {
+              OR: [
+                { v4: secKey },
+                { v3: secKey },
+                { v4: rule.v0 },
+                { v3: rule.v0 },
+              ],
+            },
           ],
         },
         select: { v0: true },
       });
-      for (const cf of childFields) {
-        if (cf.v0) policiesToRemove.add(cf.v0);
-      }
-    } else if (rule?.ptype === 'p2') {
-      const menuKey = policyName;
-      // Find all child fields under this menu
-      const childFields = await this.prisma.casbin_rule.findMany({
-        where: {
-          ptype: 'p3',
-          OR: [{ v3: menuKey }, { v4: menuKey }],
-        },
-        select: { v0: true },
-      });
-      for (const cf of childFields) {
-        if (cf.v0) policiesToRemove.add(cf.v0);
+      for (const f of childFields) {
+        if (f.v0) policiesToRemove.add(f.v0);
       }
     }
 
@@ -805,22 +862,23 @@ export class AdminService {
         where: { v0: p, ptype: { in: ['p', 'p2', 'p3'] } },
       });
       if (rule?.ptype === 'p') {
-        const secKey = rule.v4 || rule.v2 || '';
-        const childMenus = await this.prisma.casbin_rule.findMany({
-          where: { ptype: 'p2', v2: secKey },
+        const pageKey = rule.v2 || rule.v0 || '';
+        const menuKey = rule.v0 || '';
+        const childSections = await this.prisma.casbin_rule.findMany({
+          where: {
+            ptype: 'p2',
+            OR: [{ v2: pageKey }, { v2: menuKey }],
+          },
           select: { v0: true },
         });
-        const menuKeys = childMenus.map((m) => m.v0!).filter(Boolean);
-        for (const mk of menuKeys) allToRemove.add(mk);
+        for (const s of childSections) {
+          if (s.v0) allToRemove.add(s.v0);
+        }
 
         const childFields = await this.prisma.casbin_rule.findMany({
           where: {
             ptype: 'p3',
-            OR: [
-              { v2: secKey },
-              { v3: { in: menuKeys } },
-              { v4: { in: menuKeys } },
-            ],
+            OR: [{ v2: pageKey }, { v2: menuKey }],
           },
           select: { v0: true },
         });
@@ -828,11 +886,22 @@ export class AdminService {
           if (cf.v0) allToRemove.add(cf.v0);
         }
       } else if (rule?.ptype === 'p2') {
-        const menuKey = p;
+        const pageKey = rule.v2 || '';
+        const secKey = rule.v4 || rule.v3 || rule.v0 || '';
         const childFields = await this.prisma.casbin_rule.findMany({
           where: {
             ptype: 'p3',
-            OR: [{ v3: menuKey }, { v4: menuKey }],
+            AND: [
+              ...(pageKey ? [{ v2: pageKey }] : []),
+              {
+                OR: [
+                  { v4: secKey },
+                  { v3: secKey },
+                  { v4: rule.v0 },
+                  { v3: rule.v0 },
+                ],
+              },
+            ],
           },
           select: { v0: true },
         });
@@ -859,7 +928,6 @@ export class AdminService {
       });
     }
 
-    // Now add new policies (excluding any that were pruned in allToRemove)
     const toAdd = Array.from(targetPolicyNames).filter((p) => !allToRemove.has(p));
     for (const p of toAdd) {
       const rule = await this.prisma.casbin_rule.findFirst({
@@ -887,9 +955,30 @@ export class AdminService {
         where: { ptype: 'p3', v0: policyName },
       });
       if (p3Rule) {
-        const parentMenu = p3Rule.v3 || p3Rule.v4;
-        if (parentMenu) {
-          await this._ensurePolicyInBundle(bundleId, bundleName, parentMenu, 'p2');
+        const parentSecRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p2',
+            v2: p3Rule.v2,
+            OR: [
+              { v4: p3Rule.v4 },
+              { v3: p3Rule.v3 },
+              { v0: p3Rule.v4 },
+              { v0: p3Rule.v3 },
+            ],
+          },
+        });
+        if (parentSecRule?.v0) {
+          await this._ensurePolicyInBundle(bundleId, bundleName, parentSecRule.v0, 'p2');
+        }
+
+        const parentMenuRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p',
+            OR: [{ v0: p3Rule.v2 }, { v2: p3Rule.v2 }],
+          },
+        });
+        if (parentMenuRule?.v0) {
+          await this._ensurePolicyInBundle(bundleId, bundleName, parentMenuRule.v0, 'p');
         }
       }
     } else if (ptype === 'p2') {
@@ -897,12 +986,14 @@ export class AdminService {
         where: { ptype: 'p2', v0: policyName },
       });
       if (p2Rule && p2Rule.v2) {
-        const parentSecKey = p2Rule.v2;
-        const secRule = await this.prisma.casbin_rule.findFirst({
-          where: { ptype: 'p', OR: [{ v4: parentSecKey }, { v2: parentSecKey }] },
+        const parentMenuRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p',
+            OR: [{ v0: p2Rule.v2 }, { v2: p2Rule.v2 }],
+          },
         });
-        if (secRule?.v0) {
-          await this._ensurePolicyInBundle(bundleId, bundleName, secRule.v0, 'p');
+        if (parentMenuRule?.v0) {
+          await this._ensurePolicyInBundle(bundleId, bundleName, parentMenuRule.v0, 'p');
         }
       }
     }
@@ -940,7 +1031,7 @@ export class AdminService {
   }
 
   /**
-   * Get the canonical Section -> Menu -> Field resource hierarchy.
+   * Get the canonical Menu (P) -> Page -> Section (P2) -> Field (P3) resource hierarchy.
    */
   async getResourceHierarchy(): Promise<ResourceHierarchy> {
     const [pRules, p2Rules, p3Rules] = await Promise.all([
@@ -956,28 +1047,30 @@ export class AdminService {
         .trim();
     };
 
-    const sections: HierarchySection[] = [];
+    const menus: HierarchyMenu[] = [];
 
     for (const p of pRules) {
-      const secKey = p.v4 || p.v2 || '';
-      if (!secKey) continue;
+      const menuKey = p.v0 || '';
+      if (!menuKey) continue;
 
-      const secName = formatName(secKey);
-      const secMenus: HierarchyMenu[] = [];
+      const pageKey = p.v2 || menuKey;
+      const meta = parseP2Metadata(p.v3);
+      const menuName = meta.displayName || formatName(menuKey);
 
-      // Find P2 menus whose parent is this section key
-      const childP2 = p2Rules.filter((r) => r.v2 === secKey);
+      const childP2 = p2Rules.filter(
+        (r) => r.v2 === pageKey || r.v2 === menuKey,
+      );
 
-      for (const m of childP2) {
-        const menuKey = m.v0 || '';
-        const meta = parseP2Metadata(m.v3);
-        const menuName = meta.displayName || formatName(menuKey);
+      const sections: HierarchySection[] = [];
 
-        // Find P3 fields whose section is secKey and module/section is menuKey
+      for (const s of childP2) {
+        const secKey = s.v4 || s.v3 || s.v0 || '';
+        const secName = formatName(secKey);
+
         const childP3 = p3Rules.filter(
           (r) =>
-            (r.v2 === secKey || r.v4 === secKey) &&
-            (r.v3 === menuKey || r.v4 === menuKey),
+            (r.v2 === pageKey || r.v2 === menuKey) &&
+            (r.v4 === s.v4 || r.v3 === s.v3 || r.v4 === secKey || r.v3 === secKey || r.v4 === s.v0),
         );
 
         const fields: HierarchyField[] = childP3.map((f) => ({
@@ -986,32 +1079,44 @@ export class AdminService {
           policy: f.v0 || '',
           policyName: f.v0 || '',
           access: f.v6 || 'read',
+          sectionKey: secKey,
+          menuKey: menuKey,
         }));
 
-        secMenus.push({
-          key: menuKey,
-          name: menuName,
-          displayName: menuName,
-          policy: menuKey,
-          policyName: menuKey,
-          route: meta.route,
-          icon: meta.icon,
-          order: meta.order,
+        sections.push({
+          key: secKey,
+          name: secName,
+          displayName: secName,
+          policy: s.v0 || '',
+          policyName: s.v0 || '',
+          access: s.v5 || 'read',
+          page: s.v2 || pageKey,
+          menuKey: menuKey,
           fields,
         });
       }
 
-      sections.push({
-        key: secKey,
-        name: secName,
-        policy: p.v0 || '',
-        policyName: p.v0 || '',
-        access: p.v5 || 'read',
-        menus: secMenus,
+      menus.push({
+        key: menuKey,
+        name: menuName,
+        displayName: menuName,
+        policy: menuKey,
+        policyName: menuKey,
+        route: meta.route || `/${menuKey.replace(/_/g, '-')}`,
+        icon: meta.icon || 'default',
+        order: meta.order || 0,
+        sections,
+        menus: sections,
+        fields: [],
       });
     }
 
-    return { sections };
+    menus.sort((a, b) => a.order - b.order);
+
+    return {
+      menus,
+      sections: menus,
+    };
   }
 
   // ==========================================================================
@@ -1040,13 +1145,23 @@ export class AdminService {
         definitions: [],
       };
 
-      if (ptype === 'p2') {
+      if (ptype === 'p') {
+        entry.definitions.push({
+          ptype: 'p',
+          key: row.v0,
+          lob: row.v1,
+          page: row.v2,
+          meta: row.v3,
+          ...parseP2Metadata(row.v3),
+        });
+      } else if (ptype === 'p2') {
         entry.definitions.push({
           ptype: 'p2',
           lob: row.v1,
-          parent: row.v2,
-          meta: row.v3,
-          ...parseP2Metadata(row.v3),
+          page: row.v2,
+          module: row.v3,
+          section: row.v4,
+          access: row.v5,
         });
       } else if (ptype === 'p3') {
         entry.definitions.push({
@@ -1058,15 +1173,6 @@ export class AdminService {
           field: row.v5,
           access: row.v6,
         });
-      } else {
-        entry.definitions.push({
-          ptype: 'p',
-          lob: row.v1,
-          page: row.v2,
-          module: row.v3,
-          section: row.v4,
-          access: row.v5,
-        });
       }
 
       map.set(mapKey, entry);
@@ -1075,9 +1181,6 @@ export class AdminService {
     return Array.from(map.values());
   }
 
-  /**
-   * All definitions for a single policy name.
-   */
   async getPolicyDefinitions(
     permission: string,
     ptype: PolicyType = 'p',
@@ -1087,13 +1190,25 @@ export class AdminService {
       orderBy: { id: 'asc' },
     });
 
+    if (ptype === 'p') {
+      return rows.map((row) => ({
+        ptype: 'p' as const,
+        key: row.v0,
+        lob: row.v1,
+        page: row.v2,
+        meta: row.v3,
+        ...parseP2Metadata(row.v3),
+      }));
+    }
+
     if (ptype === 'p2') {
       return rows.map((row) => ({
         ptype: 'p2' as const,
         lob: row.v1,
-        parent: row.v2,
-        meta: row.v3,
-        ...parseP2Metadata(row.v3),
+        page: row.v2,
+        module: row.v3,
+        section: row.v4,
+        access: row.v5,
       }));
     }
 
@@ -1109,14 +1224,7 @@ export class AdminService {
       }));
     }
 
-    return rows.map((row) => ({
-      ptype: 'p' as const,
-      lob: row.v1,
-      page: row.v2,
-      module: row.v3,
-      section: row.v4,
-      access: row.v5,
-    }));
+    return [];
   }
 
   // ==========================================================================
