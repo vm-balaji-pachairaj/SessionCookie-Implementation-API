@@ -17,12 +17,50 @@ export interface RoleBundleSummary {
   policyCount: number;
 }
 
+export interface HierarchyField {
+  key: string;
+  name: string;
+  policy: string;
+  policyName: string;
+  access: string;
+}
+
+export interface HierarchyMenu {
+  key: string;
+  name: string;
+  displayName: string;
+  policy: string;
+  policyName: string;
+  route: string;
+  icon: string;
+  order: number;
+  fields: HierarchyField[];
+}
+
+export interface HierarchySection {
+  key: string;
+  name: string;
+  policy: string;
+  policyName: string;
+  access: string;
+  menus: HierarchyMenu[];
+}
+
+export interface ResourceHierarchy {
+  sections: HierarchySection[];
+}
+
 export interface PolicyBundleSummary {
   id: number;
   name: string;
   description: string | null;
   policyCount: number;
   roleCount: number;
+  sectionCount: number;
+  menuCount: number;
+  fieldCount: number;
+  status: string;
+  assignedRoles?: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -232,12 +270,34 @@ export class AdminService {
       rolesByBundle.get(bundle)!.add(role);
     }
 
+    // Breakdown by ptype per bundle
+    const policyPtypeCounts = await this.prisma.policy_bundle_policy.groupBy({
+      by: ['bundle_id', 'ptype'],
+      _count: { policy_name: true },
+    });
+
+    const bundleBreakdown = new Map<number, { p: number; p2: number; p3: number }>();
+    for (const row of policyPtypeCounts) {
+      if (!bundleBreakdown.has(row.bundle_id)) {
+        bundleBreakdown.set(row.bundle_id, { p: 0, p2: 0, p3: 0 });
+      }
+      const b = bundleBreakdown.get(row.bundle_id)!;
+      if (row.ptype === 'p') b.p = row._count.policy_name;
+      else if (row.ptype === 'p2') b.p2 = row._count.policy_name;
+      else if (row.ptype === 'p3') b.p3 = row._count.policy_name;
+    }
+
     return bundles.map((b) => ({
       id: b.id,
       name: b.name,
       description: b.description,
       policyCount: b._count.policies,
       roleCount: rolesByBundle.get(b.name)?.size ?? 0,
+      sectionCount: bundleBreakdown.get(b.id)?.p ?? 0,
+      menuCount: bundleBreakdown.get(b.id)?.p2 ?? 0,
+      fieldCount: bundleBreakdown.get(b.id)?.p3 ?? 0,
+      status: 'Active',
+      assignedRoles: Array.from(rolesByBundle.get(b.name) ?? []).sort(),
       created_at: b.created_at,
       updated_at: b.updated_at,
     }));
@@ -270,8 +330,19 @@ export class AdminService {
       new Set(g3Rules.map((r) => r.v0 as string)),
     ).sort();
 
+    const breakdown = { p: 0, p2: 0, p3: 0 };
+    for (const p of bundle.policies) {
+      if (p.ptype === 'p') breakdown.p++;
+      else if (p.ptype === 'p2') breakdown.p2++;
+      else if (p.ptype === 'p3') breakdown.p3++;
+    }
+
     return {
       ...bundle,
+      sectionCount: breakdown.p,
+      menuCount: breakdown.p2,
+      fieldCount: breakdown.p3,
+      status: 'Active',
       assignedRoles,
     };
   }
@@ -357,11 +428,11 @@ export class AdminService {
   }
 
   /**
-   * Update a Policy Bundle's name and/or description.
+   * Update a Policy Bundle's name and/or description, and optionally update policies.
    */
   async updatePolicyBundle(
     id: number,
-    dto: { name?: string; description?: string },
+    dto: { name?: string; description?: string; policyNames?: string[] },
   ) {
     const existing = await this.prisma.policy_bundle.findUnique({
       where: { id },
@@ -404,6 +475,12 @@ export class AdminService {
     });
 
     await this.casbinService.reloadPolicy();
+    if (dto.policyNames !== undefined) {
+      await this.setBundlePolicies(id, dto.policyNames);
+    } else {
+      await this.casbinService.reloadPolicy();
+    }
+
     return updated;
   }
 
@@ -524,6 +601,42 @@ export class AdminService {
       resolvedPtype = rule.ptype as PolicyType;
     }
 
+    // Enforce parent-child consistency: auto-include parents if missing
+    if (resolvedPtype === 'p3') {
+      const p3Rule = await this.prisma.casbin_rule.findFirst({
+        where: { ptype: 'p3', v0: policyName },
+      });
+      if (p3Rule) {
+        const parentMenu = p3Rule.v3 || p3Rule.v4;
+        if (parentMenu) {
+          const menuMapped = await this.prisma.policy_bundle_policy.findFirst({
+            where: { bundle_id: bundleId, policy_name: parentMenu },
+          });
+          if (!menuMapped) {
+            await this.addPolicyToBundle(bundleId, parentMenu, 'p2');
+          }
+        }
+      }
+    } else if (resolvedPtype === 'p2') {
+      const p2Rule = await this.prisma.casbin_rule.findFirst({
+        where: { ptype: 'p2', v0: policyName },
+      });
+      if (p2Rule && p2Rule.v2) {
+        const parentSecKey = p2Rule.v2;
+        const secRule = await this.prisma.casbin_rule.findFirst({
+          where: { ptype: 'p', OR: [{ v4: parentSecKey }, { v2: parentSecKey }] },
+        });
+        if (secRule && secRule.v0) {
+          const secMapped = await this.prisma.policy_bundle_policy.findFirst({
+            where: { bundle_id: bundleId, policy_name: secRule.v0 },
+          });
+          if (!secMapped) {
+            await this.addPolicyToBundle(bundleId, secRule.v0, 'p');
+          }
+        }
+      }
+    }
+
     // Add to policy_bundle_policy table
     const alreadyMapped = await this.prisma.policy_bundle_policy.findFirst({
       where: {
@@ -574,7 +687,9 @@ export class AdminService {
   }
 
   /**
-   * Remove a policy from a Policy Bundle (does not delete the global policy definition).
+   * Remove a policy from a Policy Bundle with CASCADING REMOVAL.
+   * If a Section is removed, all its child Menus and child Fields are removed.
+   * If a Menu is removed, all its child Fields are removed.
    */
   async removePolicyFromBundle(bundleId: number, policyName: string) {
     const bundle = await this.prisma.policy_bundle.findUnique({
@@ -585,27 +700,318 @@ export class AdminService {
       throw new NotFoundException(`Policy bundle with ID ${bundleId} not found`);
     }
 
+    // Determine what policies to remove (cascading removal)
+    const policiesToRemove = new Set<string>([policyName]);
+
+    // Check what type of policy policyName is
+    const rule = await this.prisma.casbin_rule.findFirst({
+      where: { v0: policyName, ptype: { in: ['p', 'p2', 'p3'] } },
+    });
+
+    if (rule?.ptype === 'p') {
+      const secKey = rule.v4 || rule.v2 || '';
+      // Find all child menus whose parent is this section key
+      const childMenus = await this.prisma.casbin_rule.findMany({
+        where: { ptype: 'p2', v2: secKey },
+        select: { v0: true },
+      });
+      const menuKeys = childMenus.map((m) => m.v0!).filter(Boolean);
+      for (const mk of menuKeys) policiesToRemove.add(mk);
+
+      // Find all child fields under this section or its menus
+      const childFields = await this.prisma.casbin_rule.findMany({
+        where: {
+          ptype: 'p3',
+          OR: [
+            { v2: secKey },
+            { v3: { in: menuKeys } },
+            { v4: { in: menuKeys } },
+          ],
+        },
+        select: { v0: true },
+      });
+      for (const cf of childFields) {
+        if (cf.v0) policiesToRemove.add(cf.v0);
+      }
+    } else if (rule?.ptype === 'p2') {
+      const menuKey = policyName;
+      // Find all child fields under this menu
+      const childFields = await this.prisma.casbin_rule.findMany({
+        where: {
+          ptype: 'p3',
+          OR: [{ v3: menuKey }, { v4: menuKey }],
+        },
+        select: { v0: true },
+      });
+      for (const cf of childFields) {
+        if (cf.v0) policiesToRemove.add(cf.v0);
+      }
+    }
+
+    const removeList = Array.from(policiesToRemove);
+
     // Remove from policy_bundle_policy table
     await this.prisma.policy_bundle_policy.deleteMany({
       where: {
         bundle_id: bundleId,
-        policy_name: policyName,
+        policy_name: { in: removeList },
       },
     });
 
-    // Remove (g, bundleName, policyName) rule from Casbin
+    // Remove from Casbin casbin_rule (ptype='g', v0=bundle.name, v1 in removeList)
     await this.prisma.casbin_rule.deleteMany({
       where: {
         ptype: 'g',
         v0: bundle.name,
-        v1: policyName,
+        v1: { in: removeList },
       },
     });
 
     await this.casbinService.reloadPolicy();
     return {
-      message: `Policy "${policyName}" removed from bundle "${bundle.name}"`,
+      message: `Removed ${removeList.length} policy/policies (including cascading children) from bundle "${bundle.name}"`,
+      removedPolicies: removeList,
     };
+  }
+
+  /**
+   * Replace/sync all policies in a Policy Bundle atomically.
+   * Performs cascading removal of deselected policies and auto-inclusion of parents for newly selected policies.
+   */
+  async setBundlePolicies(bundleId: number, policyNames: string[]) {
+    const bundle = await this.prisma.policy_bundle.findUnique({
+      where: { id: bundleId },
+    });
+
+    if (!bundle) {
+      throw new NotFoundException(`Policy bundle with ID ${bundleId} not found`);
+    }
+
+    const currentMappings = await this.prisma.policy_bundle_policy.findMany({
+      where: { bundle_id: bundleId },
+    });
+
+    const currentPolicyNames = new Set(currentMappings.map((m) => m.policy_name));
+    const targetPolicyNames = new Set(policyNames);
+
+    // Identify removals: policies currently in bundle but not in target
+    const toRemove = Array.from(currentPolicyNames).filter((p) => !targetPolicyNames.has(p));
+
+    // Cascading removal calculation for deselected items
+    const allToRemove = new Set<string>();
+    for (const p of toRemove) {
+      allToRemove.add(p);
+      const rule = await this.prisma.casbin_rule.findFirst({
+        where: { v0: p, ptype: { in: ['p', 'p2', 'p3'] } },
+      });
+      if (rule?.ptype === 'p') {
+        const secKey = rule.v4 || rule.v2 || '';
+        const childMenus = await this.prisma.casbin_rule.findMany({
+          where: { ptype: 'p2', v2: secKey },
+          select: { v0: true },
+        });
+        const menuKeys = childMenus.map((m) => m.v0!).filter(Boolean);
+        for (const mk of menuKeys) allToRemove.add(mk);
+
+        const childFields = await this.prisma.casbin_rule.findMany({
+          where: {
+            ptype: 'p3',
+            OR: [
+              { v2: secKey },
+              { v3: { in: menuKeys } },
+              { v4: { in: menuKeys } },
+            ],
+          },
+          select: { v0: true },
+        });
+        for (const cf of childFields) {
+          if (cf.v0) allToRemove.add(cf.v0);
+        }
+      } else if (rule?.ptype === 'p2') {
+        const menuKey = p;
+        const childFields = await this.prisma.casbin_rule.findMany({
+          where: {
+            ptype: 'p3',
+            OR: [{ v3: menuKey }, { v4: menuKey }],
+          },
+          select: { v0: true },
+        });
+        for (const cf of childFields) {
+          if (cf.v0) allToRemove.add(cf.v0);
+        }
+      }
+    }
+
+    if (allToRemove.size > 0) {
+      const removeList = Array.from(allToRemove);
+      await this.prisma.policy_bundle_policy.deleteMany({
+        where: {
+          bundle_id: bundleId,
+          policy_name: { in: removeList },
+        },
+      });
+      await this.prisma.casbin_rule.deleteMany({
+        where: {
+          ptype: 'g',
+          v0: bundle.name,
+          v1: { in: removeList },
+        },
+      });
+    }
+
+    // Now add new policies (excluding any that were pruned in allToRemove)
+    const toAdd = Array.from(targetPolicyNames).filter((p) => !allToRemove.has(p));
+    for (const p of toAdd) {
+      const rule = await this.prisma.casbin_rule.findFirst({
+        where: { v0: p, ptype: { in: ['p', 'p2', 'p3'] } },
+      });
+      if (!rule) continue;
+      await this._ensurePolicyInBundle(bundleId, bundle.name, p, rule.ptype as PolicyType);
+    }
+
+    await this.casbinService.reloadPolicy();
+    return {
+      message: `Updated policies for bundle "${bundle.name}"`,
+      bundleId,
+    };
+  }
+
+  private async _ensurePolicyInBundle(
+    bundleId: number,
+    bundleName: string,
+    policyName: string,
+    ptype: PolicyType,
+  ) {
+    if (ptype === 'p3') {
+      const p3Rule = await this.prisma.casbin_rule.findFirst({
+        where: { ptype: 'p3', v0: policyName },
+      });
+      if (p3Rule) {
+        const parentMenu = p3Rule.v3 || p3Rule.v4;
+        if (parentMenu) {
+          await this._ensurePolicyInBundle(bundleId, bundleName, parentMenu, 'p2');
+        }
+      }
+    } else if (ptype === 'p2') {
+      const p2Rule = await this.prisma.casbin_rule.findFirst({
+        where: { ptype: 'p2', v0: policyName },
+      });
+      if (p2Rule && p2Rule.v2) {
+        const parentSecKey = p2Rule.v2;
+        const secRule = await this.prisma.casbin_rule.findFirst({
+          where: { ptype: 'p', OR: [{ v4: parentSecKey }, { v2: parentSecKey }] },
+        });
+        if (secRule?.v0) {
+          await this._ensurePolicyInBundle(bundleId, bundleName, secRule.v0, 'p');
+        }
+      }
+    }
+
+    const existingMapping = await this.prisma.policy_bundle_policy.findFirst({
+      where: { bundle_id: bundleId, policy_name: policyName },
+    });
+    if (!existingMapping) {
+      await this.prisma.policy_bundle_policy.create({
+        data: {
+          bundle_id: bundleId,
+          policy_name: policyName,
+          ptype,
+        },
+      });
+    }
+
+    const existingCasbin = await this.prisma.casbin_rule.findFirst({
+      where: { ptype: 'g', v0: bundleName, v1: policyName },
+    });
+    if (!existingCasbin) {
+      await this.prisma.casbin_rule.create({
+        data: {
+          ptype: 'g',
+          v0: bundleName,
+          v1: policyName,
+          v2: null,
+          v3: null,
+          v4: null,
+          v5: null,
+          v6: null,
+        },
+      });
+    }
+  }
+
+  /**
+   * Get the canonical Section -> Menu -> Field resource hierarchy.
+   */
+  async getResourceHierarchy(): Promise<ResourceHierarchy> {
+    const [pRules, p2Rules, p3Rules] = await Promise.all([
+      this.prisma.casbin_rule.findMany({ where: { ptype: 'p' }, orderBy: { id: 'asc' } }),
+      this.prisma.casbin_rule.findMany({ where: { ptype: 'p2' }, orderBy: { id: 'asc' } }),
+      this.prisma.casbin_rule.findMany({ where: { ptype: 'p3' }, orderBy: { id: 'asc' } }),
+    ]);
+
+    const formatName = (str: string) => {
+      return str
+        .replace(/[_-]/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+        .trim();
+    };
+
+    const sections: HierarchySection[] = [];
+
+    for (const p of pRules) {
+      const secKey = p.v4 || p.v2 || '';
+      if (!secKey) continue;
+
+      const secName = formatName(secKey);
+      const secMenus: HierarchyMenu[] = [];
+
+      // Find P2 menus whose parent is this section key
+      const childP2 = p2Rules.filter((r) => r.v2 === secKey);
+
+      for (const m of childP2) {
+        const menuKey = m.v0 || '';
+        const meta = parseP2Metadata(m.v3);
+        const menuName = meta.displayName || formatName(menuKey);
+
+        // Find P3 fields whose section is secKey and module/section is menuKey
+        const childP3 = p3Rules.filter(
+          (r) =>
+            (r.v2 === secKey || r.v4 === secKey) &&
+            (r.v3 === menuKey || r.v4 === menuKey),
+        );
+
+        const fields: HierarchyField[] = childP3.map((f) => ({
+          key: f.v5 || '',
+          name: formatName(f.v5 || ''),
+          policy: f.v0 || '',
+          policyName: f.v0 || '',
+          access: f.v6 || 'read',
+        }));
+
+        secMenus.push({
+          key: menuKey,
+          name: menuName,
+          displayName: menuName,
+          policy: menuKey,
+          policyName: menuKey,
+          route: meta.route,
+          icon: meta.icon,
+          order: meta.order,
+          fields,
+        });
+      }
+
+      sections.push({
+        key: secKey,
+        name: secName,
+        policy: p.v0 || '',
+        policyName: p.v0 || '',
+        access: p.v5 || 'read',
+        menus: secMenus,
+      });
+    }
+
+    return { sections };
   }
 
   // ==========================================================================

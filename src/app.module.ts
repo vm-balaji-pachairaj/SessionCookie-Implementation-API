@@ -13,6 +13,7 @@ import { CasbinModule } from './casbin/casbin.module';
 import { UserManagementController } from './users/users.controller';
 import { UserManagementService } from './users/users.service';
 import { AdminModule } from './admin/admin.module';
+import { ResourcesModule } from './resources/resources.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AdminModule } from './admin/admin.module';
     PubSubModule,
     CasbinModule,
     AdminModule,
+    ResourcesModule,
   ],
 
   controllers: [

@@ -23,6 +23,11 @@ import type { PolicyType } from './admin.service';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get('resources')
+  getResourceHierarchy() {
+    return this.adminService.getResourceHierarchy();
+  }
+
   // --------------------------------------------------------------------------
   // Roles & Role-to-Bundle Mappings
   // --------------------------------------------------------------------------
@@ -155,6 +160,14 @@ export class AdminController {
       body.policyName,
       body.ptype,
     );
+  }
+
+  @Put('policy-bundles/:id/policies')
+  setBundlePolicies(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { policyNames: string[] },
+  ) {
+    return this.adminService.setBundlePolicies(id, body.policyNames);
   }
 
   @Delete('policy-bundles/:id/policies/:policyName')

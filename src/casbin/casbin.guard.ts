@@ -43,11 +43,46 @@ export class CasbinGuard implements CanActivate {
       throw new ForbiddenException('Role information missing from token');
     }
 
-    const allowed = await this.casbinService.enforce(roleName, policy.lob, policy.page, policy.mod, policy.sec, policy.access);
+    let allowed = false;
+
+    if (policy.field) {
+      // P3: Field-level check
+      allowed = await this.casbinService.enforce(
+        roleName,
+        policy.lob,
+        policy.page,
+        policy.mod,
+        policy.sec,
+        policy.field,
+        policy.access,
+      );
+    } else if (policy.menu && (!policy.page || policy.page === policy.sec)) {
+      // P2: Menu-level check
+      allowed = await this.casbinService.enforce(roleName, policy.menu);
+    } else if (policy.policy && !policy.access) {
+      // Named policy check
+      allowed = this.casbinService.g3_has_policy(roleName, policy.policy);
+    } else {
+      // P: Section-level check
+      allowed = await this.casbinService.enforce(
+        roleName,
+        policy.lob,
+        policy.page,
+        policy.mod,
+        policy.sec,
+        policy.access,
+      );
+    }
 
     if (!allowed) {
+      const details = policy.field
+        ? `field="${policy.field}" in menu="${policy.mod}" section="${policy.page}" access="${policy.access}"`
+        : policy.menu
+        ? `menu="${policy.menu}"`
+        : `section="${policy.sec || policy.page}" access="${policy.access}"`;
+
       throw new ForbiddenException(
-        `Role "${roleName}" is not allowed: lob="${policy.lob}" page="${policy.page}" mod="${policy.mod}" sec="${policy.sec}" access="${policy.access}"`,
+        `Role "${roleName}" is not allowed access to: ${details}`,
       );
     }
 

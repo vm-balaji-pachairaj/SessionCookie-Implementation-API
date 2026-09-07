@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { PrismaModule } from '../PrismaService/prismaservice.module';
 import { CasbinService } from './casbin.service';
+import { CasbinGuard } from './casbin.guard';
 import { AdminService } from '../admin/admin.service';
 
 jest.setTimeout(30000);
@@ -279,6 +281,202 @@ describe('Casbin RBAC Policy Bundle Architecture', () => {
         ptype: 'p3',
       });
       expect(allowedField).toBe(true);
+    });
+  });
+
+  describe('Resource Hierarchy & Cascading Logic', () => {
+    it('should return coherent Section -> Menu -> Field hierarchy from getResourceHierarchy', async () => {
+      const res = await adminService.getResourceHierarchy();
+      const hierarchy = res.sections;
+      expect(Array.isArray(hierarchy)).toBe(true);
+      expect(hierarchy.length).toBeGreaterThan(0);
+
+      // Verify each section has appropriate structure
+      const salesSection = hierarchy.find(
+        (s) => s.name.toLowerCase() === 'sales' || s.key.toLowerCase().includes('sales')
+      );
+      if (salesSection) {
+        expect(salesSection.policyName).toBeDefined();
+        expect(salesSection.key).toBeDefined();
+        expect(Array.isArray(salesSection.menus)).toBe(true);
+        if (salesSection.menus.length > 0) {
+          const menu = salesSection.menus[0];
+          expect(menu.key).toBeDefined();
+          expect(menu.displayName).toBeDefined();
+          expect(Array.isArray(menu.fields)).toBe(true);
+        }
+      }
+    });
+
+    it('should cascade deletion of child menus and fields when a section policy is removed from a bundle', async () => {
+      // 1. Create a bundle for cascade testing
+      const cascadeBundle = await adminService.createPolicyBundle({
+        name: 'Cascade Test Bundle',
+        description: 'Testing cascading deletion',
+        policyNames: [],
+      });
+
+      try {
+        // Find a section and its child menu + field from hierarchy
+        const res = await adminService.getResourceHierarchy();
+        const hierarchy = res.sections;
+        const sectionWithChildren = hierarchy.find(
+          (s) => s.menus.length > 0 && s.menus.some((m) => m.fields.length > 0)
+        );
+
+        if (sectionWithChildren) {
+          const menu = sectionWithChildren.menus.find((m) => m.fields.length > 0)!;
+          const field = menu.fields[0];
+
+          // Add section, menu, and field to bundle
+          await adminService.addPolicyToBundle(cascadeBundle.id, sectionWithChildren.policyName, 'p');
+          await adminService.addPolicyToBundle(cascadeBundle.id, menu.key, 'p2');
+          await adminService.addPolicyToBundle(cascadeBundle.id, field.policyName, 'p3');
+
+          // Verify all 3 are in the bundle
+          let bundlePolicies = await adminService.getBundlePolicies(cascadeBundle.id);
+          const perms = bundlePolicies.map((p) => p.permission);
+          expect(perms).toContain(sectionWithChildren.policyName);
+          expect(perms).toContain(menu.key);
+          expect(perms).toContain(field.policyName);
+
+          // Now remove the SECTION policy
+          await adminService.removePolicyFromBundle(cascadeBundle.id, sectionWithChildren.policyName);
+
+          // Verify cascade: section, menu, and field should ALL be removed
+          bundlePolicies = await adminService.getBundlePolicies(cascadeBundle.id);
+          const permsAfter = bundlePolicies.map((p) => p.permission);
+          expect(permsAfter).not.toContain(sectionWithChildren.policyName);
+          expect(permsAfter).not.toContain(menu.key);
+          expect(permsAfter).not.toContain(field.policyName);
+        }
+      } finally {
+        await adminService.deletePolicyBundle(cascadeBundle.id);
+      }
+    });
+
+    it('should sync bundle policies with atomic setBundlePolicies (parent auto-inclusion & cascading deselect)', async () => {
+      const syncBundle = await adminService.createPolicyBundle({
+        name: 'Test Atomic Sync Bundle',
+        description: 'For testing setBundlePolicies',
+      });
+
+      try {
+        const hierarchy = await adminService.getResourceHierarchy();
+        const section = hierarchy.sections.find((s) => s.menus.length > 0 && s.menus[0].fields.length > 0);
+        if (section) {
+          const menu = section.menus[0];
+          const field = menu.fields[0];
+
+          // 1. Setting only the field should auto-include parent menu and section
+          await adminService.setBundlePolicies(syncBundle.id, [field.policyName]);
+
+          let bundlePolicies = await adminService.getBundlePolicies(syncBundle.id);
+          let perms = bundlePolicies.map((p) => p.permission);
+          expect(perms).toContain(field.policyName);
+          expect(perms).toContain(menu.key);
+          expect(perms).toContain(section.policyName);
+
+          // 2. Updating with empty array should remove everything
+          await adminService.setBundlePolicies(syncBundle.id, []);
+          bundlePolicies = await adminService.getBundlePolicies(syncBundle.id);
+          expect(bundlePolicies.length).toBe(0);
+        }
+      } finally {
+        await adminService.deletePolicyBundle(syncBundle.id);
+      }
+    });
+  });
+
+  describe('CasbinGuard & @usePolicyNeeded Integration', () => {
+    let reflector: Reflector;
+    let guard: CasbinGuard;
+
+    beforeAll(() => {
+      reflector = app.get(Reflector);
+      guard = new CasbinGuard(reflector, casbinService);
+    });
+
+    it('should allow access when role has the required section policy', async () => {
+      const mockContext = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: { userDetails: { role_name: TEST_ROLE } },
+          }),
+        }),
+      } as any;
+
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
+        lob: 'hcp',
+        page: 'claim',
+        mod: 'process',
+        sec: 'main',
+        access: 'edit',
+      });
+
+      const allowed = await guard.canActivate(mockContext);
+      expect(allowed).toBe(true);
+    });
+
+    it('should throw ForbiddenException when role lacks the required policy', async () => {
+      const mockContext = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: { userDetails: { role_name: TEST_ROLE_2 } },
+          }),
+        }),
+      } as any;
+
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
+        lob: 'hcp',
+        page: 'claim',
+        mod: 'process',
+        sec: 'main',
+        access: 'edit',
+      });
+
+      await expect(guard.canActivate(mockContext)).rejects.toThrow();
+    });
+
+    it('should throw ForbiddenException when token role information is missing', async () => {
+      const mockContext = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: undefined,
+          }),
+        }),
+      } as any;
+
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
+        lob: 'hcp',
+        page: 'claim',
+        mod: 'process',
+        sec: 'main',
+        access: 'edit',
+      });
+
+      await expect(guard.canActivate(mockContext)).rejects.toThrow('Role information missing from token');
+    });
+
+    it('should allow through unconditionally when no @usePolicyNeeded metadata exists', async () => {
+      const mockContext = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as any;
+
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
+
+      const allowed = await guard.canActivate(mockContext);
+      expect(allowed).toBe(true);
     });
   });
 });
