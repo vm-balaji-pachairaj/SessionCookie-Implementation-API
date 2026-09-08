@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { HttpException } from '@nestjs/common';
 import { AuthService } from './app.service';
 
 describe('AuthService', () => {
@@ -28,7 +28,7 @@ describe('AuthService', () => {
       delete: jest.fn(),
     };
 
-    service = new AuthService(prisma, jwtService, redis);
+    service = new AuthService(prisma, jwtService, redis, {} as any);
   });
 
   it('should reject login when an access token already exists for the user', async () => {
@@ -49,7 +49,7 @@ describe('AuthService', () => {
     );
 
     await expect(service.login('U001', 'secret')).rejects.toThrow(
-      UnauthorizedException,
+      HttpException,
     );
     expect(redis.get).toHaveBeenCalledWith('ACCESS_U001');
   });

@@ -38,17 +38,13 @@ export const AUTH_CONFIG = {
     accessToken: {
       name: 'access_token',
       path: '/',
-      maxAge: ms(
-        (process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '15m') as ms.StringValue,
-      ),
+      maxAge: typeof ms === 'function' ? ms((process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '15m') as any) : ((ms as any)?.default ? (ms as any).default((process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '15m')) : 900000),
     },
     refreshToken: {
       name: 'refresh_token',
       // Only ever sent back to /refresh, not every API call.
       path: '/api/refresh',
-      maxAge: ms(
-        (process.env.JWT_REFRESH_TOKEN_EXPIRES_IN || '7d') as ms.StringValue,
-      ),
+      maxAge: typeof ms === 'function' ? ms((process.env.JWT_REFRESH_TOKEN_EXPIRES_IN || '7d') as any) : ((ms as any)?.default ? (ms as any).default((process.env.JWT_REFRESH_TOKEN_EXPIRES_IN || '7d')) : 604800000),
     },
   },
 } as const;

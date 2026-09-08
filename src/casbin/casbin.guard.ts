@@ -13,7 +13,7 @@ import { CasbinService } from './casbin.service';
 // ============================================================================
 // CASBIN GUARD — runs AFTER AuthGuard has already validated the JWT + Redis
 // session and attached `request.user`. This guard purely checks permissions.
-// Routes without @CheckPolicy are allowed through unconditionally.
+// Routes without @CheckPolicy / @usePolicyNeeded are allowed through unconditionally.
 // ============================================================================
 @Injectable()
 export class CasbinGuard implements CanActivate {

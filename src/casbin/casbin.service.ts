@@ -11,6 +11,7 @@ import { PrismaService } from '../PrismaService/prisma.service';
 import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
 import { parseP2Metadata } from './p2-metadata.util';
 import { createPolicyBundleTables } from '../../prisma/create-policy-bundle-tables';
+import { ensureCasbinTablesAndSeed } from './casbin-seeder';
 
 export interface FieldPermission {
   permission: string;
@@ -63,6 +64,9 @@ export class CasbinService implements OnModuleInit {
 
       // 1. Ensure PostgreSQL schema & tables exist idempotently
       await createPolicyBundleTables();
+      // 1. Ensure PostgreSQL schema & tables exist idempotently, and auto-feed policies if empty
+      // 1. Ensure PostgreSQL schema & tables exist idempotently, and auto-seed resources, policies & bundles
+      await ensureCasbinTablesAndSeed(this.logger);
 
       // 2. Load Casbin model configuration
       const modelPath = path.join(
@@ -242,10 +246,6 @@ export class CasbinService implements OnModuleInit {
   }
 
   private async enforceMenu(role: string, key: string): Promise<boolean> {
-    const menu = await this.getMenuInfo(key);
-    if (!menu) {
-      return false;
-    }
     return this.g3_has_policy(role, key);
   }
 

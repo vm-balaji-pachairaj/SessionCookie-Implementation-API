@@ -13,7 +13,7 @@ export interface PolicyRequirementOptions {
   field?: string;
   access?: string;
   policy?: string;
-  type?: 'menu' | 'section' | 'field';
+  type?: 'menu' | 'section' | 'field' | 'custom';
 }
 
 export interface PolicyRequirement {
@@ -22,9 +22,9 @@ export interface PolicyRequirement {
   mod?: string;
   sec?: string;
   section?: string;
-  access?: string;
   menu?: string;
   field?: string;
+  access?: string;
   policy?: string;
   type?: 'menu' | 'section' | 'field' | 'custom';
 }
@@ -33,7 +33,7 @@ export interface PolicyRequirement {
  * Universal Casbin policy authorization decorator.
  *
  * Resource Hierarchy:
- * MENU (P) -> PAGE (Container) -> SECTION (P2) -> FIELD (P3)
+ * MENU (P) -> SECTION (P2) -> FIELD (P3)
  *
  * Supports:
  * - Menu-level (P):
@@ -68,7 +68,7 @@ export function usePolicyNeeded(
     const access = opts.access || 'read';
 
     const req: PolicyRequirement = {
-      type: opts.type || (opts.field ? 'field' : (section ? 'section' : (menu ? 'menu' : undefined))),
+      type: opts.type || (opts.field ? 'field' : section ? 'section' : menu ? 'menu' : undefined),
       lob,
       page,
       mod,

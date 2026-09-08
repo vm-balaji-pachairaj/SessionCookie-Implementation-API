@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
+import { ensureCasbinTablesAndSeed } from '../src/casbin/casbin-seeder';
 
 loadEnv({ path: path.join(__dirname, '..', '.env') });
 
@@ -45,6 +46,9 @@ async function main(): Promise<void> {
 
     // eslint-disable-next-line no-console
     console.log('casbin.casbin_rule recreated with v0..v6 columns.');
+
+    // Auto-reseed so the table is never left empty
+    await ensureCasbinTablesAndSeed(undefined, { force: true });
   } finally {
     await client.end();
   }

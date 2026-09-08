@@ -49,7 +49,7 @@ export interface HierarchyMenu {
   icon: string;
   order: number;
   sections: HierarchySection[];
-  // Backward compatibility aliases during rollout
+  // Backward compatibility alias during rollout
   menus?: HierarchySection[];
   fields?: HierarchyField[];
 }
@@ -429,6 +429,7 @@ export class AdminService {
     });
 
     if (dto.policyNames && dto.policyNames.length > 0) {
+      await this.validateBundlePoliciesHierarchy(dto.policyNames);
       for (const policyName of dto.policyNames) {
         await this.addPolicyToBundle(bundle.id, policyName);
       }
@@ -485,7 +486,6 @@ export class AdminService {
       },
     });
 
-    await this.casbinService.reloadPolicy();
     if (dto.policyNames !== undefined) {
       await this.setBundlePolicies(id, dto.policyNames);
     } else {
@@ -730,6 +730,88 @@ export class AdminService {
   }
 
   /**
+   * Validates parent-child consistency across Menu (P) -> Section (P2) -> Field (P3).
+   */
+  async validateBundlePoliciesHierarchy(policyNames: string[]): Promise<void> {
+    if (!policyNames || policyNames.length === 0) return;
+
+    // Fetch all casbin rules for these policies
+    const rules = await this.prisma.casbin_rule.findMany({
+      where: {
+        ptype: { in: ['p', 'p2', 'p3'] },
+        v0: { in: policyNames },
+      },
+    });
+
+    const ruleMap = new Map<string, (typeof rules)[0]>();
+    for (const r of rules) {
+      if (r.v0) ruleMap.set(r.v0, r);
+    }
+
+    // Check existence
+    for (const p of policyNames) {
+      if (!ruleMap.has(p)) {
+        throw new BadRequestException(`Policy "${p}" does not exist in policy definitions`);
+      }
+    }
+
+    const pRules = rules.filter((r) => r.ptype === 'p');
+    const p2Rules = rules.filter((r) => r.ptype === 'p2');
+    const p3Rules = rules.filter((r) => r.ptype === 'p3');
+
+    const selectedMenuKeys = new Set<string>();
+    for (const p of pRules) {
+      if (p.v0) selectedMenuKeys.add(p.v0);
+      if (p.v2) selectedMenuKeys.add(p.v2);
+    }
+
+    const selectedSecKeys = new Set<string>();
+    for (const s of p2Rules) {
+      if (s.v0) selectedSecKeys.add(s.v0);
+      if (s.v4) selectedSecKeys.add(s.v4);
+      if (s.v3) selectedSecKeys.add(s.v3);
+
+      // Validate Section belongs to a selected Menu
+      const parentMenuKey = s.v2 || '';
+      if (!parentMenuKey || !selectedMenuKeys.has(parentMenuKey)) {
+        const parentMenuRule = await this.prisma.casbin_rule.findFirst({
+          where: { ptype: 'p', OR: [{ v0: parentMenuKey }, { v2: parentMenuKey }] },
+        });
+        const parentName = parentMenuRule?.v0 || parentMenuKey || 'parent Menu';
+        throw new BadRequestException(
+          `Section "${s.v0}" cannot be added without its parent Menu "${parentName}".`,
+        );
+      }
+    }
+
+    // Validate Fields belong to a selected Section and selected Menu
+    for (const f of p3Rules) {
+      const parentMenuKey = f.v2 || '';
+      const parentSecKey = f.v4 || f.v3 || '';
+
+      if (!parentSecKey || !selectedSecKeys.has(parentSecKey)) {
+        const parentSecRule = await this.prisma.casbin_rule.findFirst({
+          where: {
+            ptype: 'p2',
+            v2: f.v2,
+            OR: [{ v4: parentSecKey }, { v3: parentSecKey }, { v0: parentSecKey }],
+          },
+        });
+        const secName = parentSecRule?.v0 || parentSecKey || 'parent Section';
+        throw new BadRequestException(
+          `Field "${f.v0}" cannot be added without its parent Section "${secName}".`,
+        );
+      }
+
+      if (!parentMenuKey || !selectedMenuKeys.has(parentMenuKey)) {
+        throw new BadRequestException(
+          `Field "${f.v0}" cannot be added without its parent Menu.`,
+        );
+      }
+    }
+  }
+
+  /**
    * Remove a policy from a Policy Bundle with CASCADING REMOVAL.
    * If a Menu (P) is removed, all its child Sections (P2) and child Fields (P3) are removed.
    * If a Section (P2) is removed, all its child Fields (P3) are removed.
@@ -928,13 +1010,44 @@ export class AdminService {
       });
     }
 
+    // Now add new policies (excluding any that were pruned in allToRemove)
     const toAdd = Array.from(targetPolicyNames).filter((p) => !allToRemove.has(p));
-    for (const p of toAdd) {
-      const rule = await this.prisma.casbin_rule.findFirst({
-        where: { v0: p, ptype: { in: ['p', 'p2', 'p3'] } },
-      });
-      if (!rule) continue;
-      await this._ensurePolicyInBundle(bundleId, bundle.name, p, rule.ptype as PolicyType);
+    if (toAdd.length > 0) {
+      // Auto-include parents for any child field or section
+      const resolvedToAdd = new Set<string>(toAdd);
+      for (const p of toAdd) {
+        const fieldRule = await this.prisma.casbin_rule.findFirst({
+          where: { ptype: 'p3', v0: p },
+        });
+        if (fieldRule) {
+          const parentSecKey = fieldRule.v4 || fieldRule.v3 || '';
+          const parentSecRule = await this.prisma.casbin_rule.findFirst({
+            where: {
+              ptype: 'p2',
+              v2: fieldRule.v2,
+              OR: [{ v4: parentSecKey }, { v3: parentSecKey }, { v0: parentSecKey }],
+            },
+          });
+          if (parentSecRule?.v0) resolvedToAdd.add(parentSecRule.v0);
+          if (fieldRule.v2) resolvedToAdd.add(fieldRule.v2);
+        }
+
+        const secRule = await this.prisma.casbin_rule.findFirst({
+          where: { ptype: 'p2', v0: p },
+        });
+        if (secRule && secRule.v2) {
+          resolvedToAdd.add(secRule.v2);
+        }
+      }
+
+      await this.validateBundlePoliciesHierarchy(Array.from(resolvedToAdd));
+      for (const p of resolvedToAdd) {
+        const rule = await this.prisma.casbin_rule.findFirst({
+          where: { v0: p, ptype: { in: ['p', 'p2', 'p3'] } },
+        });
+        if (!rule) continue;
+        await this._ensurePolicyInBundle(bundleId, bundle.name, p, rule.ptype as PolicyType);
+      }
     }
 
     await this.casbinService.reloadPolicy();
@@ -1031,7 +1144,7 @@ export class AdminService {
   }
 
   /**
-   * Get the canonical Menu (P) -> Page -> Section (P2) -> Field (P3) resource hierarchy.
+   * Get the canonical Menu (P) -> Section (P2) -> Field (P3) resource hierarchy.
    */
   async getResourceHierarchy(): Promise<ResourceHierarchy> {
     const [pRules, p2Rules, p3Rules] = await Promise.all([
@@ -1057,6 +1170,7 @@ export class AdminService {
       const meta = parseP2Metadata(p.v3);
       const menuName = meta.displayName || formatName(menuKey);
 
+      // Find P2 sections whose parent is this menu
       const childP2 = p2Rules.filter(
         (r) => r.v2 === pageKey || r.v2 === menuKey,
       );
@@ -1107,7 +1221,6 @@ export class AdminService {
         order: meta.order || 0,
         sections,
         menus: sections,
-        fields: [],
       });
     }
 
@@ -1181,6 +1294,9 @@ export class AdminService {
     return Array.from(map.values());
   }
 
+  /**
+   * All definitions for a single policy name.
+   */
   async getPolicyDefinitions(
     permission: string,
     ptype: PolicyType = 'p',
