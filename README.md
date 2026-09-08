@@ -261,24 +261,476 @@ Authenticated users can access:
 
 The token payload contains userDetails, role_id, user_role_mapping_id, username, and type information.
 
-### Casbin authorization model
+## Casbin Implementation
 
-This project uses a policy bundle architecture based on Casbin.
+### Overview
 
-At a high level:
+This repository implements Casbin as a custom role-and-policy-bundle authorization layer rather than a simple one-to-one role-to-policy mapping. The core idea is:
 
-- Role -> Policy Bundle via g3 groupings
-- Bundle -> Policies via g groupings
-- Policy checks are performed for menu, section, and field permissions
+- a role is mapped to one or more policy bundles through `g3`
+- each bundle contains many policy names through `g`
+- policies themselves are stored as `p`, `p2`, and `p3` rules
+- menu, section, and field checks are all performed through the same Casbin enforcer and custom matchers
 
-The resource hierarchy is defined by data in src/casbin/casbin-resources.ts and the matcher model in src/casbin/model/rbac.conf.
+This is not a default Casbin starter setup. The implementation is designed around a resource hierarchy and a policy-bundle admin model that lets a role inherit access through bundles instead of being directly tied to each permission string.
 
-The key authorization components are:
+### Architecture
 
-- src/casbin/casbin.service.ts
-- src/casbin/casbin.guard.ts
-- src/casbin/casbin.decorator.ts
-- src/casbin/casbin-seeder.ts
+The authorization flow in this project is split across several layers:
+
+1. `AuthGuard` validates the JWT and Redis-backed session before a route runs.
+2. `CasbinGuard` inspects metadata such as `@CheckPolicy` or `@usePolicyNeeded` and decides whether the authenticated role is allowed to proceed.
+3. `CasbinService` loads the model and policy store, builds the in-memory bundle index, and executes enforcement through the Casbin enforcer.
+4. `PrismaCasbinAdapter` reads and writes Casbin rules in the PostgreSQL `casbin.casbin_rule` table.
+5. `ensureCasbinTablesAndSeed` creates the schema and seeds canonical rules, bundles, and role mappings if the database is empty.
+6. `AdminService` exposes policy bundle management routes for roles, bundles, and policy assignment.
+
+The end-to-end model is:
+
+```text
+User / Token role
+        |
+        v
+AuthGuard (JWT + Redis validation)
+        |
+        v
+CasbinGuard (@CheckPolicy / @usePolicyNeeded)
+        |
+        v
+CasbinService.enforce(...)
+        |
+        +--> g3_has_policy(role, bundle)
+        +--> g(bundle, policy)
+        +--> p / p2 / p3 matcher logic in rbac.conf
+        |
+        v
+Allow or ForbiddenException
+```
+
+### Casbin Configuration
+
+Casbin is configured in the Nest application through `CasbinModule`.
+
+Relevant wiring:
+
+- `src/app.module.ts` imports `CasbinModule`
+- `src/casbin/casbin.module.ts` registers `CasbinService` and installs `CasbinGuard` as a global `APP_GUARD`
+
+That means the guard is active for all routes, but it only enforces routes that are decorated with Casbin metadata. Other routes pass through without an authorization decision.
+
+This module does the following:
+
+- creates the Casbin enforcer on startup
+- loads the model file from `src/casbin/model/rbac.conf`
+- uses `PrismaCasbinAdapter` to read/write policy data from PostgreSQL
+- registers the custom function `g3_has_policy`
+- rebuilds the in-memory bundle cache after policy reloads
+
+### Model and Matchers
+
+The Casbin model is defined in `src/casbin/model/rbac.conf`.
+
+The model defines the following request and policy structures:
+
+```ini
+[request_definition]
+r = sub, key
+r2 = sub, lob, page, mod, sec, access
+r3 = sub, lob, page, mod, sec, field, access
+
+[policy_definition]
+p = key, lob, page, meta
+p2 = perm, lob, page, mod, sec, access
+p3 = perm, lob, page, mod, sec, field, access
+
+[role_definition]
+g = _, _
+g2 = _, _, _
+g3 = _, _
+```
+
+The important thing in this repository is that the model is intentionally expressive enough to represent three permission levels:
+
+- `p`: menu-level access (for example `dashboard`, `sales`, `reports`)
+- `p2`: section-level access (for example `sec_orders`, `sec_dashboard_overview`)
+- `p3`: field-level access (for example `field_orders_amount`, `field_users_add`)
+
+The matchers are also custom to this project:
+
+```ini
+m = g3_has_policy(r.sub, p.key) && r.key == p.key
+m2 = g3_has_policy(r2.sub, p2.perm) && r2.lob == p2.lob && r2.page == p2.page && (r2.mod == p2.mod || p2.mod == 'main') && (r2.sec == p2.sec || p2.sec == 'main') && r2.access == p2.access
+m3 = g3_has_policy(r3.sub, p3.perm) && r3.lob == p3.lob && r3.page == p3.page && (r3.mod == p3.mod || p3.mod == 'main' || r3.mod == p3.sec) && r3.sec == p3.sec && r3.field == p3.field && r3.access == p3.access
+```
+
+These matchers encode the actual repository behavior:
+
+- a user does not hold direct policy strings in its identity
+- the user must belong to a role that is connected to a policy bundle
+- the bundle resolves to `p`, `p2`, or `p3` policies
+- the resource match is checked using `lob`, `page`, `mod`, `sec`, `field`, and `access`
+
+### Roles and Permissions
+
+The project uses a bundle-based RBAC model.
+
+The actual relationship model is:
+
+- `role -> g3 -> bundle`
+- `bundle -> g -> policy`
+- `policy -> p / p2 / p3`
+
+This is implemented in `CasbinService` with these in-memory indexes:
+
+- `roleBundles`: `Map<string, Set<string>>` built from `g3`
+- `bundlePolicies`: `Map<string, Set<string>>` built from `g`
+
+The custom function `g3_has_policy(sub, perm)` in `src/casbin/casbin.service.ts` is the key to this design:
+
+```ts
+g3_has_policy(sub: string, perm: string): boolean {
+  if (!sub || !perm) return false;
+  const bundles = this.roleBundles.get(sub);
+  if (!bundles || bundles.size === 0) return false;
+
+  for (const bundle of bundles) {
+    const policies = this.bundlePolicies.get(bundle);
+    if (policies && policies.has(perm)) {
+      return true;
+    }
+  }
+  return false;
+}
+```
+
+This means a role is not directly assigned individual permission names. Instead, the role is assigned a bundle, and that bundle resolves to the relevant policies.
+
+### Policy Storage and Database Integration
+
+The actual policy rules are stored in PostgreSQL tables under the `casbin` schema.
+
+The table definitions are created by `ensureCasbinTablesAndSeed`:
+
+- `casbin.casbin_rule`
+- `casbin.policy_bundle`
+- `casbin.policy_bundle_policy`
+
+The custom adapter `src/casbin/prisma-casbin.adapter.ts` maps the database rows to the Casbin rule model.
+
+Key implementation details:
+
+- `loadPolicy(model)` reads all rows from `casbin.casbin_rule`
+- `savePolicy(model)` writes the entire set of `p`, `p2`, `p3`, and `g` rules back to the table
+- `addPolicy`, `addPolicies`, `removePolicy`, `removeFilteredPolicy` mirror Casbin CRUD operations against the database
+- the adapter explicitly handles the repository's actual Prisma table name `casbin_rule`, since the generated Prisma client exposes it with underscore naming rather than camelCase
+
+Because the app uses a custom adapter, the Casbin enforcer is not using a generic file-based policy store. It is using the database as the source of truth.
+
+### Policy Files and Seed Data
+
+The project also includes a resource hierarchy definition in:
+
+- `src/casbin/casbin-resources.ts`
+- `src/casbin/casbin-seeder.ts`
+
+The hierarchy data defines resource menus, sections, and fields such as:
+
+- `dashboard`
+- `sales`
+- `reports`
+- `user_management`
+- `audit`
+
+Each menu contains sections and fields. Each section/field carries its own policy name and access value. For example, in the resource hierarchy:
+
+- `sec_orders` is the section policy for the sales orders section
+- `field_orders_amount` is the field policy for the `amount` column
+- `field_orders_actions` is the field policy for action operations
+
+`ensureCasbinTablesAndSeed` is idempotent and runs on startup. If the Casbin tables are empty, it:
+
+- creates the schema and tables
+- seeds canonical menu/section/field policies
+- creates several canonical bundles such as:
+  - `Full Administrator Bundle`
+  - `Sales Manager Bundle`
+  - `Sales Agent Bundle`
+  - `User Access Support Bundle`
+  - `Auditor Bundle`
+- assigns those bundles to role names via `g3`
+- stores landing pages via `g2`
+
+This is why a role like `System Admin` or `Sales Manager` can resolve into an authorization set without needing explicit `p` or `p2` entries for every user.
+
+### Enforcer Initialization
+
+The Casbin enforcer is initialized in `src/casbin/casbin.service.ts` inside `onModuleInit()`.
+
+The sequence is:
+
+1. `createPolicyBundleTables()` ensures the supporting tables exist
+2. `ensureCasbinTablesAndSeed(this.logger)` loads the canonical data if needed
+3. the model is read from `src/casbin/model/rbac.conf`
+4. `newEnforcer(model, new PrismaCasbinAdapter(this.prisma))` creates the enforcer
+5. `g3_has_policy` is registered as a custom function
+6. `rebuildCacheFromEnforcer()` computes the `roleBundles` and `bundlePolicies` indexes
+
+This is the actual startup path used by the application when the service boots.
+
+### Policy Management
+
+Policy management is exposed through the admin API in `src/admin/admin.controller.ts` and `src/admin/admin.service.ts`.
+
+The admin console supports:
+
+- listing roles
+- listing bundles assigned to roles
+- assigning or removing bundles from a role
+- creating or updating a policy bundle
+- adding or removing policies from a bundle
+- listing all policy definitions and resource hierarchy
+- checking a centralized enforcer decision
+
+The admin controller is intentionally marked `@Public()` in this project, which is an implementation detail worth noting: the admin console is not protected by the same auth flow at the route level.
+
+The bundle semantics are explicitly encoded in comments in the controller:
+
+```ts
+// Role -> (g3) -> Policy Bundle -> (g) -> Policies (P, P2, P3).
+```
+
+### Authorization and Enforcement Flow
+
+The actual enforcement path is implemented in `CasbinService.enforce()`.
+
+The overloads support three major types of checks:
+
+- `enforce(sub, menuKey)` for menu (`p`) checks
+- `enforce(sub, lob, page, mod, sec, access)` for section (`p2`) checks
+- `enforce(sub, lob, page, mod, sec, field, access)` for field (`p3`) checks
+
+Internally the service uses the matcher stored on the model:
+
+- `m` for menu decisions
+- `m2` for section decisions
+- `m3` for field decisions
+
+It executes the matcher via `enforceWithMatcher(...)`:
+
+```ts
+const matcher = this.enforcer.getModel().model.get('m')?.get('m2')?.value;
+return this.enforcer.enforceWithMatcher(
+  matcher,
+  new EnforceContext('r2', 'p2', 'e', 'm2'),
+  sub,
+  lob,
+  page,
+  mod,
+  sec,
+  access,
+);
+```
+
+The enforcement path uses the role name from the authenticated token, then checks whether that role belongs to a bundle that contains the relevant `p`, `p2`, or `p3` policy.
+
+### Request-to-Authorization Flow
+
+A normalized request flow in this repository looks like this:
+
+```text
+GET /api/sales/orders
+        |
+        v
+AuthGuard validates JWT + Redis cookie session
+        |
+        v
+request.user contains userDetails.role_name
+        |
+        v
+@usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'read' })
+        |
+        v
+CasbinGuard reads metadata
+        |
+        v
+CasbinService.enforce(roleName, 'hcp', 'sales', 'orders', 'orders', 'read')
+        |
+        v
+matcher m2 checks:
+  g3_has_policy(role, p2.perm)
+  lob matches
+  page matches
+  mod matches
+  sec matches
+  access matches
+        |
+        v
+Allow route or throw ForbiddenException
+```
+
+Once a route is allowed, the application may still perform additional field-level checks. For example, in `src/resources/resources.controller.ts`, the `amount` column is masked when `canReadAmount` is false even though the list endpoint itself is allowed.
+
+### Relevant Files
+
+The actual Casbin implementation is spread across these files:
+
+- `src/casbin/casbin.module.ts` — registers the service and global guard
+- `src/casbin/casbin.service.ts` — enforcer lifecycle, bundle cache, enforcement, role resolution
+- `src/casbin/casbin.guard.ts` — enforces route-level policy metadata after JWT validation
+- `src/casbin/casbin.decorator.ts` — `@CheckPolicy` / `@usePolicyNeeded` metadata builder
+- `src/casbin/model/rbac.conf` — Casbin model and matcher definitions
+- `src/casbin/prisma-casbin.adapter.ts` — Prisma-backed policy adapter
+- `src/casbin/casbin-seeder.ts` — idempotent schema creation and seed logic
+- `src/casbin/casbin-resources.ts` — canonical resource hierarchy
+- `src/admin/admin.service.ts` — bundle CRUD and role-to-bundle logic
+- `src/admin/admin.controller.ts` — admin policy management routes
+- `src/resources/resources.controller.ts` — example protected API endpoints
+- `src/users/users.controller.ts` — user management routes guarded by policy metadata
+- `src/app.module.ts` — global app wiring
+- `src/auth.guard.ts` — JWT + Redis session validation performed before Casbin checks
+
+### Adding a New Role
+
+A new role is created in the application data model outside the Casbin layer itself. Once the role exists in the database, the role can be connected to a bundle using `g3` semantics.
+
+In practice, the flow is:
+
+1. add the role to the relevant role table or master data if needed
+2. create or choose an existing policy bundle in the admin console or through the admin service
+3. assign the role to the bundle using the admin route `POST /api/admin/roles/:role/bundles`
+4. reload the policy in the enforcer via the admin service logic (`reloadPolicy()`)
+
+The application stores those assignments as `g3` rows in `casbin.casbin_rule`.
+
+### Adding or Modifying Permissions and Policies
+
+Permissions are created as entries in the canonical hierarchy and stored as rules:
+
+- `p` for menu policies
+- `p2` for section policies
+- `p3` for field policies
+
+A new permission is typically added by:
+
+1. defining the menu/section/field in `src/casbin/casbin-resources.ts` or the canonical hierarchy data
+2. letting the seeder insert the policy into `casbin.casbin_rule`
+3. attaching that policy to a bundle in the admin flow
+4. assigning the bundle to a role
+
+The `AdminService` methods are the actual implementation used for this workflow:
+
+- `createPolicyBundle()`
+- `addPolicyToBundle()`
+- `removePolicyFromBundle()`
+- `setBundlePolicies()`
+- `assignRoleToBundle()`
+
+### Protecting a New API or Resource
+
+The repository uses route metadata, not a custom interceptor, to trigger the Casbin check.
+
+Examples from the codebase:
+
+- `@CheckPolicy({ menu: 'user_management', section: 'users', access: 'read' })`
+- `@usePolicyNeeded({ menu: 'sales', section: 'orders', field: 'actions', access: 'edit' })`
+
+The decorator builds a requirement object and stores it in metadata. `CasbinGuard` reads that metadata on every request and translates it to the correct `p`, `p2`, or `p3` enforcement call.
+
+To protect a new route in this repository, the usual pattern is:
+
+```ts
+@UseGuards(AuthGuard)
+@CheckPolicy({ menu: 'sales', section: 'orders', access: 'read' })
+```
+
+or:
+
+```ts
+@usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'read' })
+```
+
+The route will then be checked against the relevant Casbin matcher and rejected with `ForbiddenException` if not allowed.
+
+### Error Handling
+
+Authorization failures are converted into `ForbiddenException` by `CasbinGuard`.
+
+The code path is:
+
+```ts
+if (!allowed) {
+  const details = ...;
+  throw new ForbiddenException(
+    `Role "${roleName}" is not allowed access to: ${details}`,
+  );
+}
+```
+
+This is how the system reports a missing permission. A route can also fail earlier if:
+
+- the JWT is invalid or expired in `AuthGuard`
+- the Redis session is missing or stale
+- the token has no `userDetails.role_name`
+
+In those cases, the request is rejected before the Casbin decision is reached.
+
+### Debugging and Troubleshooting
+
+A developer can debug the authorization flow by checking the following layers:
+
+1. Route metadata: is the route decorated with `@CheckPolicy` / `@usePolicyNeeded`?
+2. Token payload: does `request.user.userDetails.role_name` exist?
+3. Casbin role mapping: does the role have a bundle via `g3`?
+4. Bundle contents: does the bundle include the expected policy via `g`?
+5. Policy definitions: does the relevant `p`, `p2`, or `p3` row exist in `casbin.casbin_rule`?
+6. Matcher logic: do the `lob`, `page`, `mod`, `sec`, `field`, and `access` values match the rule?
+
+The most useful server-side entry points are:
+
+- `CasbinService.getBundlesForRole(roleName)`
+- `CasbinService.getPoliciesForBundle(bundleName)`
+- `CasbinService.getPermissionsForRole(roleName)`
+- `CasbinService.getFieldPermissionsForRole(roleName)`
+- `CasbinService.getMenusForRole(roleName)`
+- `AdminController` `POST /api/admin/enforcer/check`
+
+This last endpoint runs the centralized check and returns whether a given role is allowed for the supplied parameters.
+
+### End-to-End Example
+
+A concrete example from the repository is the orders screen:
+
+- `GET /api/sales/orders` is protected by:
+  - `@usePolicyNeeded({ section: 'sales', menu: 'orders', access: 'read' })`
+  - `@usePolicyNeeded({ menu: 'sales', section: 'orders', access: 'read' })`
+- the route calls `this.casbinService.enforce(...)` for `amount` visibility
+- a `Sales Agent` role may be allowed to view the list but not the `amount` field if the `field_orders_amount` permission is absent
+- in that case, `getOrders()` masks the `amount` property even though the route itself remains accessible
+
+This demonstrates the repository’s real behavior: the app separates route access from field-level visibility and enforces both layers independently.
+
+### Important Implementation Notes
+
+- There is no direct user-to-policy mapping in the normal permission flow; the mapping is mediated by bundles and `g3`.
+- The `CasbinService` intentionally caches `g3` and `g` relationships in memory for faster permission checks.
+- The authorization model is not a generic role-permission model; it is a bundle-centric resource model built around pages, sections, and fields.
+- `DATABASE_URL` is the real environment dependency for Casbin data loading because the enforcer reads and writes to PostgreSQL.
+- The admin policy-console routes are intentionally public in the current implementation, which is a project-specific design choice rather than a general Casbin requirement.
+- The route guard order matters: `AuthGuard` runs before `CasbinGuard`, so the Casbin decision is only made for an already-authenticated request.
+
+### Summary
+
+The Casbin implementation in this repository is a custom, PostgreSQL-backed bundle-based RBAC system. It couples a Casbin model (`rbac.conf`) to a Prisma adapter (`PrismaCasbinAdapter`) and a service layer (`CasbinService`) that interprets menu, section, and field policies through `p`, `p2`, and `p3` rules.
+
+The real architectural pattern is:
+
+- roles belong to bundles via `g3`
+- bundles contain policies via `g`
+- permissions are evaluated through custom `m`, `m2`, and `m3` matchers
+- route metadata decides which permission check to execute
+- failures are surfaced as `ForbiddenException`
+
+That is the actual Casbin system this project uses, and it is the model a new developer should understand when extending authorization in this codebase.
 
 ### Admin policy management
 
