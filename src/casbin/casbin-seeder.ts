@@ -51,7 +51,9 @@ export async function ensureCasbinTablesAndSeed(logger?: Logger, options?: SeedO
   };
 
   try {
-    // 1. Ensure schema & tables exist
+    // The seeder runs at startup and is intentionally idempotent: it creates the
+    // schema only once and skips the data load if the policy tables already hold
+    // the canonical role bundle data.
     await client.query(`CREATE SCHEMA IF NOT EXISTS casbin;`);
 
     await client.query(`

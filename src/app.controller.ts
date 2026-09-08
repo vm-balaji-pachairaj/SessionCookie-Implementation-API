@@ -33,6 +33,8 @@ export class AuthController {
 
   constructor(private readonly authService: AuthService) {}
 
+  // Authenticates a user with username/password and establishes the initial
+  // access/refresh cookie pair for the browser session.
   @Public()
   @Post('login')
   async login(
@@ -69,6 +71,8 @@ export class AuthController {
     };
   }
 
+  // Reuses an active session cookie when available to continue the user's current
+  // authenticated context without requiring a fresh username/password submission.
   @Public()
   @Post('continue-session')
   async continueSession(
@@ -133,6 +137,7 @@ export class AuthController {
     };
   }
 
+  // Returns the protected dashboard payload for the currently authenticated user.
   @Get('dashboard')
   async getDashboard(@Req() request: Request & { user?: TokenPayload }) {
     const user = request.user as TokenPayload;
@@ -157,6 +162,8 @@ export class AuthController {
     };
   }
 
+  // Rotates the token pair using the refresh cookie to keep the browser session
+  // alive without forcing the user to sign in again.
   @Public()
   @Post('refresh')
   async refresh(
@@ -198,6 +205,8 @@ export class AuthController {
     };
   }
 
+  // Switches the authenticated user to a different role and refreshes the token
+  // payload so subsequent requests operate under the selected role context.
   @Post('changerole')
   async changeRole(
     @Req() request: Request & { user?: TokenPayload },
@@ -253,6 +262,8 @@ export class AuthController {
     };
   }
 
+  // Exposes the currently validated token payload to help debug or inspect the
+  // authenticated session details for the active request.
   @Get('thistoken')
   async getThisToken(@Req() request: Request & { user?: TokenPayload }) {
     const user = request.user as TokenPayload;
@@ -268,6 +279,8 @@ export class AuthController {
     };
   }
 
+  // Signs the user out by invalidating the server-side session and clearing the
+  // browser auth cookies so no stale access/refresh token remains.
   @Post('logout')
   async logout(
     @Req() request: Request,
@@ -318,6 +331,8 @@ export class AuthController {
     return { message: 'Logout successful' };
   }
 
+  // Utility endpoint used to exercise the logger across different severities and
+  // confirm log collection/formatting behavior during troubleshooting.
   @Post('test-logger')
   async testLogger(
     @Req() request: Request & { user?: TokenPayload },
@@ -370,6 +385,9 @@ export class AuthController {
   // Private helpers — HTTP-transport concerns only.
   // --------------------------------------------------------------------
 
+  // The browser stores the tokens as HttpOnly cookies so JavaScript cannot read
+  // them directly. This keeps the access token usable for request validation while
+  // still allowing the refresh cookie to rotate a valid session pair.
   private setAuthCookies(
     response: Response,
     tokens: { accessToken: string; refreshToken: string },
@@ -396,6 +414,9 @@ export class AuthController {
     });
   }
 
+  // A logout/refresh failure should still leave the browser in a clean state.
+  // Clearing both cookies avoids stale auth state when a token is invalid or when
+  // the previous session was already replaced.
   private clearAuthCookies(response: Response) {
     const { cookie } = AUTH_CONFIG;
 

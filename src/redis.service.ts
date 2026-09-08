@@ -85,6 +85,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  // Clears any stale access/refresh tokens left behind by previous sessions so a
+  // restarted service does not keep an orphaned auth state in Redis.
   async clearSessionKeys(): Promise<void> {
     if (!this.client || !this.isReady) return;
 

@@ -134,7 +134,8 @@ export class CasbinService implements OnModuleInit {
 
   /**
    * Synchronous check used by Casbin matchers:
-   * Returns true if role `sub` is assigned to any Policy Bundle that contains policy `perm`.
+   * The role is not linked directly to each policy; instead it is linked to one or
+   * more bundles, and the bundle membership is resolved in memory for fast checks.
    */
   g3_has_policy(sub: string, perm: string): boolean {
     if (!sub || !perm) return false;

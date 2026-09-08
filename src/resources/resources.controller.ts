@@ -88,7 +88,8 @@ export class ResourcesController {
       'read',
     );
 
-    // Filter fields according to Casbin field permissions
+    // Field-level enforcement is applied here by masking the amount column when the
+    // role does not have P3 permission, even though the order list itself remains visible.
     const filteredOrders = MOCK_ORDERS.map((order) => {
       const copy = { ...order };
       if (!canReadAmount) {

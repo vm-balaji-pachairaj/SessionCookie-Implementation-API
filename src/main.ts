@@ -5,6 +5,9 @@ import cookieParser from 'cookie-parser';
 import type { Request, Response, NextFunction } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
+// Bootstraps the Nest application and applies the global HTTP middleware used by
+// the session/auth flow, including cookie parsing, cache-control headers, CORS,
+// and Swagger generation for the API surface.
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
