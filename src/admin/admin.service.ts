@@ -1160,57 +1160,95 @@ export class AdminService {
         .trim();
     };
 
-    const menus: HierarchyMenu[] = [];
+    // Map to ensure each menuKey is unique
+    const menuMap = new Map<string, HierarchyMenu>();
 
     for (const p of pRules) {
       const menuKey = p.v0 || '';
       if (!menuKey) continue;
 
-      const pageKey = p.v2 || menuKey;
       const meta = parseP2Metadata(p.v3);
       const menuName = meta.displayName || formatName(menuKey);
 
-      // Find P2 sections whose parent is this menu
-      const childP2 = p2Rules.filter(
-        (r) => r.v2 === pageKey || r.v2 === menuKey,
-      );
+      // If menuKey already seen, merge metadata if richer, but do not duplicate
+      if (menuMap.has(menuKey)) {
+        const existing = menuMap.get(menuKey)!;
+        if ((!existing.route || existing.route === `/${menuKey}`) && meta.route) {
+          existing.route = meta.route;
+        }
+        if (meta.displayName && existing.displayName === formatName(menuKey)) {
+          existing.displayName = meta.displayName;
+          existing.name = meta.displayName;
+        }
+        continue;
+      }
 
-      const sections: HierarchySection[] = [];
+      // Find P2 sections whose parent is this menu
+      const childP2 = p2Rules.filter((r) => r.v2 === menuKey);
+
+      // Map to ensure sections under this menu are unique
+      const sectionMap = new Map<string, HierarchySection>();
 
       for (const s of childP2) {
         const secKey = s.v4 || s.v3 || s.v0 || '';
         const secName = formatName(secKey);
+        const secPolicy = s.v0 || `sec_${secKey}`;
+
+        if (sectionMap.has(secKey) || sectionMap.has(secPolicy)) {
+          continue;
+        }
 
         const childP3 = p3Rules.filter(
           (r) =>
-            (r.v2 === pageKey || r.v2 === menuKey) &&
+            r.v2 === menuKey &&
             (r.v4 === s.v4 || r.v3 === s.v3 || r.v4 === secKey || r.v3 === secKey || r.v4 === s.v0),
         );
 
-        const fields: HierarchyField[] = childP3.map((f) => ({
-          key: f.v5 || '',
-          name: formatName(f.v5 || ''),
-          policy: f.v0 || '',
-          policyName: f.v0 || '',
-          access: f.v6 || 'read',
-          sectionKey: secKey,
-          menuKey: menuKey,
-        }));
+        // Map to ensure fields under this section are unique
+        const fieldMap = new Map<string, HierarchyField>();
 
-        sections.push({
+        for (const f of childP3) {
+          const fldKey = f.v5 || f.v0 || '';
+          const fldPolicy = f.v0 || `field_${fldKey}`;
+
+          if (fieldMap.has(fldKey) || fieldMap.has(fldPolicy)) {
+            continue;
+          }
+
+          const fieldObj: HierarchyField = {
+            key: fldKey,
+            name: formatName(fldKey),
+            policy: fldPolicy,
+            policyName: fldPolicy,
+            access: f.v6 || 'read',
+            sectionKey: secKey,
+            menuKey: menuKey,
+          };
+          fieldMap.set(fldKey, fieldObj);
+          if (fldPolicy) fieldMap.set(fldPolicy, fieldObj);
+        }
+
+        const fields = Array.from(new Set(fieldMap.values()));
+
+        const sectionObj: HierarchySection = {
           key: secKey,
           name: secName,
           displayName: secName,
-          policy: s.v0 || '',
-          policyName: s.v0 || '',
+          policy: secPolicy,
+          policyName: secPolicy,
           access: s.v5 || 'read',
-          page: s.v2 || pageKey,
+          page: s.v2 || menuKey,
           menuKey: menuKey,
           fields,
-        });
+        };
+
+        sectionMap.set(secKey, sectionObj);
+        if (secPolicy) sectionMap.set(secPolicy, sectionObj);
       }
 
-      menus.push({
+      const sections = Array.from(new Set(sectionMap.values()));
+
+      const menuObj: HierarchyMenu = {
         key: menuKey,
         name: menuName,
         displayName: menuName,
@@ -1221,9 +1259,12 @@ export class AdminService {
         order: meta.order || 0,
         sections,
         menus: sections,
-      });
+      };
+
+      menuMap.set(menuKey, menuObj);
     }
 
+    const menus = Array.from(menuMap.values());
     menus.sort((a, b) => a.order - b.order);
 
     return {
@@ -1259,33 +1300,45 @@ export class AdminService {
       };
 
       if (ptype === 'p') {
-        entry.definitions.push({
-          ptype: 'p',
+        const def = {
+          ptype: 'p' as const,
           key: row.v0,
           lob: row.v1,
           page: row.v2,
           meta: row.v3,
           ...parseP2Metadata(row.v3),
-        });
+        };
+        const defKey = JSON.stringify(def);
+        if (!entry.definitions.some((d) => JSON.stringify(d) === defKey)) {
+          entry.definitions.push(def);
+        }
       } else if (ptype === 'p2') {
-        entry.definitions.push({
-          ptype: 'p2',
+        const def = {
+          ptype: 'p2' as const,
           lob: row.v1,
           page: row.v2,
           module: row.v3,
           section: row.v4,
           access: row.v5,
-        });
+        };
+        const defKey = JSON.stringify(def);
+        if (!entry.definitions.some((d) => JSON.stringify(d) === defKey)) {
+          entry.definitions.push(def);
+        }
       } else if (ptype === 'p3') {
-        entry.definitions.push({
-          ptype: 'p3',
+        const def = {
+          ptype: 'p3' as const,
           lob: row.v1,
           page: row.v2,
           module: row.v3,
           section: row.v4,
           field: row.v5,
           access: row.v6,
-        });
+        };
+        const defKey = JSON.stringify(def);
+        if (!entry.definitions.some((d) => JSON.stringify(d) === defKey)) {
+          entry.definitions.push(def);
+        }
       }
 
       map.set(mapKey, entry);
@@ -1306,41 +1359,51 @@ export class AdminService {
       orderBy: { id: 'asc' },
     });
 
-    if (ptype === 'p') {
-      return rows.map((row) => ({
-        ptype: 'p' as const,
-        key: row.v0,
-        lob: row.v1,
-        page: row.v2,
-        meta: row.v3,
-        ...parseP2Metadata(row.v3),
-      }));
+    const seen = new Set<string>();
+    const results: PolicyDefinition[] = [];
+
+    for (const row of rows) {
+      let def: PolicyDefinition | null = null;
+      if (ptype === 'p') {
+        def = {
+          ptype: 'p',
+          key: row.v0,
+          lob: row.v1,
+          page: row.v2,
+          meta: row.v3,
+          ...parseP2Metadata(row.v3),
+        };
+      } else if (ptype === 'p2') {
+        def = {
+          ptype: 'p2',
+          lob: row.v1,
+          page: row.v2,
+          module: row.v3,
+          section: row.v4,
+          access: row.v5,
+        };
+      } else if (ptype === 'p3') {
+        def = {
+          ptype: 'p3',
+          lob: row.v1,
+          page: row.v2,
+          module: row.v3,
+          section: row.v4,
+          field: row.v5,
+          access: row.v6,
+        };
+      }
+
+      if (def) {
+        const key = JSON.stringify(def);
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push(def);
+        }
+      }
     }
 
-    if (ptype === 'p2') {
-      return rows.map((row) => ({
-        ptype: 'p2' as const,
-        lob: row.v1,
-        page: row.v2,
-        module: row.v3,
-        section: row.v4,
-        access: row.v5,
-      }));
-    }
-
-    if (ptype === 'p3') {
-      return rows.map((row) => ({
-        ptype: 'p3' as const,
-        lob: row.v1,
-        page: row.v2,
-        module: row.v3,
-        section: row.v4,
-        field: row.v5,
-        access: row.v6,
-      }));
-    }
-
-    return [];
+    return results;
   }
 
   // ==========================================================================

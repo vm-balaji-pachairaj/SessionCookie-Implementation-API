@@ -32,10 +32,15 @@ async function main(): Promise<void> {
   const sqlPath = path.join(__dirname, 'recreate-casbin-rule.sql');
   const sql = fs.readFileSync(sqlPath, 'utf-8');
 
-  const statements = sql
+  const cleanSql = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  const statements = cleanSql
     .split(';')
     .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0 && !statement.startsWith('--'));
+    .filter((statement) => statement.length > 0);
 
   try {
     for (const statement of statements) {

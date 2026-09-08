@@ -6,6 +6,7 @@
 -- since it seeds automatically whenever casbin_rule is empty.
 
 DROP TABLE IF EXISTS casbin.casbin_rule;
+DROP TABLE IF EXISTS casbin.casbin_rule CASCADE;
 
 CREATE TABLE casbin.casbin_rule (
   id    SERIAL PRIMARY KEY,
@@ -19,4 +20,6 @@ CREATE TABLE casbin.casbin_rule (
   v6    TEXT,
   CONSTRAINT casbin_policy_ptype_v0_v1_v2_v3_v4_v5_v6_key
     UNIQUE (ptype, v0, v1, v2, v3, v4, v5, v6)
+    UNIQUE NULLS NOT DISTINCT (ptype, v0, v1, v2, v3, v4, v5, v6)
 );
+

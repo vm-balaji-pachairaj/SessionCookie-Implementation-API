@@ -6,6 +6,8 @@ p2,  add_view_aggregate_deductible,  hcp,  _,  displayName:Add View Aggregate De
 p2,  grievence_update,  hcp,  _,  displayName:Grievance Tagging|route:/grievanceTagging|icon:/images/svg/menu/grievance-update.svg|order:5
 p2,  dashboard_initiator,  hcp,  _,  displayName:Dashboard|route:/user/initiator/dashboard|icon:/images/svg/menu/dashboard.svg|order:6
 p2,  dashboard_reviewer,  hcp,  _,  displayName:Dashboard|route:/user/reviewer/dashboard|icon:/images/svg/menu/dashboard.svg|order:7
+p2,  dashboard_initiator,  hcp,  _,  displayName:Initiator Dashboard|route:/user/initiator/dashboard|icon:/images/svg/menu/dashboard.svg|order:6
+p2,  dashboard_reviewer,  hcp,  _,  displayName:Reviewer Dashboard|route:/user/reviewer/dashboard|icon:/images/svg/menu/dashboard.svg|order:7
 p2,  initiate_new_user,  hcp,  _,  displayName:Initiate New user|route:/user/initiator/new-user-request|icon:/images/svg/menu/initiate-new-user.svg|order:8
 p2,  modify_user,  hcp,  _,  displayName:Modify user|route:/user/initiator/modify-user-request|icon:/images/svg/menu/modify-user.svg|order:9
 p2,  search_user,  hcp,  _,  displayName:Search user|route:/user/reviewer/search-user|icon:/images/svg/menu/search-user.svg|order:10

@@ -10,7 +10,6 @@ import * as fs from 'fs';
 import { PrismaService } from '../PrismaService/prisma.service';
 import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
 import { parseP2Metadata } from './p2-metadata.util';
-import { createPolicyBundleTables } from '../../prisma/create-policy-bundle-tables';
 import { ensureCasbinTablesAndSeed } from './casbin-seeder';
 
 export interface FieldPermission {
@@ -62,9 +61,6 @@ export class CasbinService implements OnModuleInit {
     try {
       this.logger.log('Initializing Casbin with Policy Bundle architecture...');
 
-      // 1. Ensure PostgreSQL schema & tables exist idempotently
-      await createPolicyBundleTables();
-      // 1. Ensure PostgreSQL schema & tables exist idempotently, and auto-feed policies if empty
       // 1. Ensure PostgreSQL schema & tables exist idempotently, and auto-seed resources, policies & bundles
       await ensureCasbinTablesAndSeed(this.logger);
 

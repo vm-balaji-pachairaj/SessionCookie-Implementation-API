@@ -21,7 +21,6 @@
     "casbin:recreate-table": "ts-node -r tsconfig-paths/register prisma/recreate-casbin-rule.ts",
     "prisma:generate": "prisma generate",
     "prisma:seed": "ts-node -r tsconfig-paths/register prisma/seed-resources.ts"
-    "prisma:generate": "prisma generate"
   },
   "dependencies": {
     "@google-cloud/pubsub": "^6.0.1",
