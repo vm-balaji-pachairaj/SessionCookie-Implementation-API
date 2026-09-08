@@ -22,6 +22,9 @@ export class CasbinGuard implements CanActivate {
     private readonly casbinService: CasbinService,
   ) {}
 
+  // The permission check happens after JWT validation. This guard only decides
+  // whether the authenticated role is allowed to access the route or field-level
+  // resource described by the Casbin metadata on the handler.
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const policy = this.reflector.getAllAndOverride<PolicyRequirement | undefined>(
       CHECK_POLICY_KEY,

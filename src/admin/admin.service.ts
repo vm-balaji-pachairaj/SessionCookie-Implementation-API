@@ -1057,6 +1057,10 @@ export class AdminService {
     };
   }
 
+  // Ensures a policy exists in a bundle with its parent hierarchy preserved.
+  // This keeps the bundle consistent when a field or section is added individually,
+  // because the UI and the Casbin resource model expect menu -> section -> field
+  // relationships to remain intact.
   private async _ensurePolicyInBundle(
     bundleId: number,
     bundleName: string,

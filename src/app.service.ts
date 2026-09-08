@@ -124,6 +124,8 @@ export class AuthService {
       );
     }
 
+    // The session lock is enforced at the Redis layer: a second login is rejected
+    // as soon as either the access or refresh key already exists for the same user.
     const hasExistingSession =
       existingAccess !== null || existingRefresh !== null;
 

@@ -20,6 +20,8 @@ export class AuthGuard implements CanActivate {
     private readonly redisService: RedisService,
   ) {}
 
+  // Runs before a protected route handler and confirms the caller has a valid,
+  // Redis-backed session token. Public routes are allowed through without this check.
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),

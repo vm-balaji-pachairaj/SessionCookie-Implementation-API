@@ -238,6 +238,9 @@ async getUsers(
   }
 
   private async assertEditableFields(payload: UserPayload, roleName: string): Promise<void> {
+    // Field-level authorization is enforced per logical section instead of a single
+    // blanket permission. This keeps user edits aligned with the resource hierarchy
+    // used by the front end and Casbin rules.
     for (const [field, key] of Object.entries(FIELD_TO_PAYLOAD)) {
       if (payload[key] === undefined) continue;
       const section = ['employeeId', 'firstName', 'lastName'].includes(field)

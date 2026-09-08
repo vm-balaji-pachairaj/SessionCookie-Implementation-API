@@ -169,7 +169,8 @@ export class PubSubService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Start listening to messages from the subscription
+   * Starts the subscription listener and routes every received message through the
+   * registered handlers while tracking delivery, retries, and acknowledgement state.
    */
   private startListening(): void {
     if (!this.subscription) return;
@@ -300,8 +301,8 @@ export class PubSubService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pull messages from the subscription
-   * Returns messages that have been received by the subscriber
+   * Returns buffered Pub/Sub messages that were already received by the listener.
+   * This is a debugging / inspection API rather than a full consumer loop.
    */
   async pullMessages(maxMessages: number = 10): Promise<any[]> {
     if (!this.isConnected) {
