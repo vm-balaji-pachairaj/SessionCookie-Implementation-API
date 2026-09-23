@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import {
   newEnforcer,
   Enforcer,
@@ -7,6 +7,7 @@ import {
 } from 'casbin';
 import * as path from 'path';
 import * as fs from 'fs';
+import { RedisWrapper } from 'nest-common-utilities';
 import { PrismaService } from '../PrismaService/prisma.service';
 import { PrismaCasbinAdapter } from './prisma-casbin.adapter';
 import { parseP2Metadata } from './p2-metadata.util';
@@ -45,9 +46,11 @@ export interface EnforceOptions {
 }
 
 @Injectable()
-export class CasbinService implements OnModuleInit {
+export class CasbinService implements OnModuleInit, OnModuleDestroy {
   private enforcer!: Enforcer;
   private readonly logger = new Logger(CasbinService.name);
+  private redisWrapper: RedisWrapper | null = null;
+  private readonly instanceId = `inst_${process.pid}_${Math.random().toString(36).substring(2, 8)}`;
 
   // In-memory lookup sets derived directly from Casbin enforcer rules
   // role -> set of assigned bundle names (from g3)
@@ -91,6 +94,35 @@ export class CasbinService implements OnModuleInit {
       // 5. Build in-memory fast index from loaded rules
       await this.rebuildCacheFromEnforcer();
 
+      // 6. Subscribe to Redis for cross-instance policy synchronization via RedisWrapper
+      try {
+        this.redisWrapper = new RedisWrapper();
+        await this.redisWrapper.subscribe('casbin_policy_update', async (message: string) => {
+          try {
+            const data = JSON.parse(message);
+            if (data?.origin === this.instanceId) {
+              return;
+            }
+            this.logger.log(
+              `[Redis PubSub] Received Casbin policy update from instance "${data?.origin}" (action: ${data?.action || 'unknown'}). Calling loadPolicy()...`,
+            );
+            await this.reloadPolicy(false);
+            this.logger.log('[Redis PubSub] Successfully reloaded Casbin policies in response to Redis signal.');
+          } catch (parseErr) {
+            this.logger.error('[Redis PubSub] Failed to handle message on casbin_policy_update', parseErr);
+          }
+        });
+        this.logger.log(
+          `[Redis PubSub] Subscribed to Redis channel "casbin_policy_update" (Instance ID: ${this.instanceId})`,
+        );
+      } catch (redisErr) {
+        this.logger.warn(
+          `[Redis PubSub] Could not initialize Redis subscription: ${
+            redisErr instanceof Error ? redisErr.message : String(redisErr)
+          }`,
+        );
+      }
+
       this.logger.log(
         `Casbin initialized successfully. Loaded ${this.roleBundles.size} role-bundle mapping(s) and ${this.bundlePolicies.size} bundle-policy mapping(s).`,
       );
@@ -100,6 +132,16 @@ export class CasbinService implements OnModuleInit {
         error instanceof Error ? error.stack : String(error),
       );
       throw error;
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.redisWrapper) {
+      try {
+        await this.redisWrapper.disconnect();
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -372,10 +414,27 @@ export class CasbinService implements OnModuleInit {
 
   /**
    * Reload all policies from the database into the enforcer and rebuild memory cache.
+   * If broadcast is true, publishes an update signal to Redis so other instances reload.
    */
-  async reloadPolicy(): Promise<void> {
+  async reloadPolicy(broadcast = true, reason = 'policy_updated'): Promise<void> {
     await this.enforcer.loadPolicy();
     await this.rebuildCacheFromEnforcer();
+
+    if (broadcast && this.redisWrapper) {
+      try {
+        const payload = JSON.stringify({
+          origin: this.instanceId,
+          action: reason,
+          timestamp: Date.now(),
+        });
+        await this.redisWrapper.publish('casbin_policy_update', payload);
+        this.logger.log(
+          `[Redis PubSub] Published policy update to "casbin_policy_update" (origin: ${this.instanceId}, action: ${reason})`,
+        );
+      } catch (err) {
+        this.logger.error('[Redis PubSub] Failed to publish policy update to Redis', err);
+      }
+    }
   }
 
   /**

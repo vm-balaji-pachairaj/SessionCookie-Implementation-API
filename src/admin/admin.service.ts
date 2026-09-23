@@ -1468,4 +1468,15 @@ export class AdminService {
       key: params.key,
     };
   }
+
+  /**
+   * Manually trigger a policy reload and broadcast update signal via Redis to all instances.
+   */
+  async reloadPolicies() {
+    await this.casbinService.reloadPolicy(true, 'manual_admin_reload');
+    return {
+      message: 'Casbin policies reloaded and update signal broadcasted via Redis',
+      timestamp: new Date().toISOString(),
+    };
+  }
 }

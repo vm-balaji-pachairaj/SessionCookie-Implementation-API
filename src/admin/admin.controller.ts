@@ -28,6 +28,11 @@ export class AdminController {
     return this.adminService.getResourceHierarchy();
   }
 
+  @Post('reload-policies')
+  reloadPolicies() {
+    return this.adminService.reloadPolicies();
+  }
+
   // --------------------------------------------------------------------------
   // Roles & Role-to-Bundle Mappings
   // --------------------------------------------------------------------------

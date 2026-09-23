@@ -26,10 +26,9 @@ export class CasbinGuard implements CanActivate {
   // whether the authenticated role is allowed to access the route or field-level
   // resource described by the Casbin metadata on the handler.
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const policy = this.reflector.getAllAndOverride<PolicyRequirement | undefined>(
-      CHECK_POLICY_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const policy = this.reflector.getAllAndOverride<
+      PolicyRequirement | undefined
+    >(CHECK_POLICY_KEY, [context.getHandler(), context.getClass()]);
 
     // No @CheckPolicy on this route — skip permission check.
     if (!policy) {
@@ -59,7 +58,10 @@ export class CasbinGuard implements CanActivate {
         policy.field || '',
         policy.access || 'read',
       );
-    } else if (policy.type === 'menu' || (!policy.section && !policy.sec && policy.menu)) {
+    } else if (
+      policy.type === 'menu' ||
+      (!policy.section && !policy.sec && policy.menu)
+    ) {
       // P: Menu-level check (sub, menuKey)
       const menuKey = policy.menu || policy.page || policy.policy || '';
       allowed = await this.casbinService.enforce(roleName, menuKey);
@@ -81,9 +83,10 @@ export class CasbinGuard implements CanActivate {
     if (!allowed) {
       const details = policy.field
         ? `field="${policy.field}" in section="${policy.sec || policy.section || policy.mod}" page="${policy.page || policy.menu}" access="${policy.access}"`
-        : policy.type === 'menu' || (!policy.section && !policy.sec && policy.menu)
-        ? `menu="${policy.menu || policy.page || policy.policy}"`
-        : `section="${policy.sec || policy.section || policy.page}" access="${policy.access}"`;
+        : policy.type === 'menu' ||
+            (!policy.section && !policy.sec && policy.menu)
+          ? `menu="${policy.menu || policy.page || policy.policy}"`
+          : `section="${policy.sec || policy.section || policy.page}" access="${policy.access}"`;
 
       throw new ForbiddenException(
         `Role "${roleName}" is not allowed access to: ${details}`,
